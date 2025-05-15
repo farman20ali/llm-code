@@ -1,0 +1,5 @@
+{
+  "SQL_MODEL": "ft:gpt-3.5-turbo-0125",
+  "USE_SCHEMA_AWARE_MODEL": true,
+  "COST_TIER": "economy"
+}
