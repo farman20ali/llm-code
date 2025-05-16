@@ -180,3 +180,4 @@ docker system prune -f
 # Rebuild with new dependencies
 docker-compose build --no-cache
 docker-compose up -d
+docker logs $(docker ps -q --filter name=web) | cat

@@ -5,10 +5,15 @@ services:
     build: .
     ports:
       - "5000:5000"
+    env_file:
+      - .env
     environment:
       - FLASK_APP=app
       - FLASK_ENV=production
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - USE_SCHEMA_AWARE_MODEL=true
+      - COST_TIER=economy
+      - TEMPERATURE=0.0
+      - MAX_TOKENS=2048
     volumes:
       - .:/app
     restart: unless-stopped 

@@ -34,7 +34,20 @@ class AIService:
             if not api_key:
                 current_app.logger.error("OpenAI API key is missing from configuration")
                 raise ValueError("OpenAI API key not configured")
-            return OpenAI(api_key=api_key)
+            
+            current_app.logger.info(f"API Key prefix: {api_key[:8]}...")
+            
+            # Initialize client with minimal configuration
+            client = OpenAI(
+                api_key=api_key,
+                base_url="https://api.openai.com/v1"
+            )
+            
+            # Test the client by listing models
+            models = client.models.list()
+            current_app.logger.info(f"Successfully initialized OpenAI client. Found {len(models.data)} models.")
+            
+            return client
         except Exception as e:
             current_app.logger.error(f"Failed to initialize OpenAI client: {str(e)}")
             raise
