@@ -170,4 +170,13 @@ python test_api.py --endpoint json --data-file data.json
 
 ## License
 
-MIT 
+MIT
+
+##installation:
+# Remove old images
+docker-compose down
+docker system prune -f
+
+# Rebuild with new dependencies
+docker-compose build --no-cache
+docker-compose up -d

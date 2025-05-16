@@ -144,9 +144,11 @@ def main():
         
         # Save the configuration
         config = {
-            'SQL_MODEL': model_id,
-            'USE_SCHEMA_AWARE_MODEL': args.use_schema_aware,
-            'COST_TIER': args.cost_tier
+            'model_id': model_id,
+            'use_schema_aware_model': args.use_schema_aware,
+            'cost_tier': args.cost_tier,
+            'temperature': 0.0,
+            'max_tokens': 2048
         }
         
         with open(args.output, 'w') as f:
@@ -159,9 +161,9 @@ def main():
         print("\nUsage instructions:")
         print("1. The application will now use this model automatically on startup")
         print("2. You can override settings with environment variables:")
-        print("   - SQL_MODEL")
-        print("   - USE_SCHEMA_AWARE_MODEL")
-        print("   - COST_TIER")
+        print("   - SQL_MODEL (maps to model_id)")
+        print("   - USE_SCHEMA_AWARE_MODEL (maps to use_schema_aware_model)")
+        print("   - COST_TIER (maps to cost_tier)")
         
     return 0
 

@@ -197,13 +197,15 @@ def system_check():
     1. Database connection
     2. OpenAI API connection
     3. Environment variables
+    4. Model configuration
     
     Returns diagnostic information about the system status.
     """
     results = {
         "database": {"status": "unknown", "message": ""},
         "openai_api": {"status": "unknown", "message": ""},
-        "environment": {"status": "unknown", "variables": {}}
+        "environment": {"status": "unknown", "variables": {}},
+        "models": {"status": "unknown", "configuration": {}}
     }
     
     # Check database connection
@@ -216,18 +218,20 @@ def system_check():
         db_port = current_app.config.get('DB_PORT', '5432')
         db_name = current_app.config.get('DB_NAME', 'insights')
         
-        # Build connection string
-        db_url = f"{db_protocol}{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
-        
+        conn = psycopg2.connect(
+                user=db_user,
+                password=db_password,
+                host=db_host,
+                port=db_port,
+                dbname=db_name,
+                connect_timeout=10
+            )
         # Mask password for logs
         masked_url = f"{db_protocol}{db_user}:****@{db_host}:{db_port}/{db_name}"
         current_app.logger.info(f"Testing database connection to: {masked_url}")
         
-        # Try a simple query
-        conn = psycopg2.connect(db_url)
-        cur = conn.cursor()
-        cur.execute("SELECT 1")
-        conn.close()
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
         
         results["database"]["status"] = "ok"
         results["database"]["message"] = "Successfully connected to database"
@@ -242,18 +246,71 @@ def system_check():
         results["database"]["message"] = f"Database connection error: {str(e)}"
         current_app.logger.error(f"Database check failed: {str(e)}")
     
-    # Check OpenAI API connection
+    # Check OpenAI API connection and models
     try:
         connection_ok, connection_msg = AIService.check_api_connection()
         results["openai_api"]["status"] = "ok" if connection_ok else "error"
         results["openai_api"]["message"] = connection_msg
+        
+        if connection_ok:
+            # Get configured models
+            client = AIService.get_client()
+            available_models = [m.id for m in client.models.list().data]
+            
+            # Check each model tier
+            model_config = {
+                "economy": {
+                    "configured": current_app.config.get('ECONOMY_MODEL'),
+                    "available": current_app.config.get('ECONOMY_MODEL') in available_models
+                },
+                "standard": {
+                    "configured": current_app.config.get('STANDARD_MODEL'),
+                    "available": current_app.config.get('STANDARD_MODEL') in available_models
+                },
+                "premium": {
+                    "configured": current_app.config.get('PREMIUM_MODEL'),
+                    "available": current_app.config.get('PREMIUM_MODEL') in available_models
+                }
+            }
+            
+            # Check current model configuration
+            current_model = current_app.config.get('SQL_MODEL')
+            use_schema_aware = current_app.config.get('USE_SCHEMA_AWARE_MODEL', False)
+            cost_tier = current_app.config.get('COST_TIER', 'economy')
+            
+            results["models"]["configuration"] = {
+                "current_model": current_model,
+                "use_schema_aware": use_schema_aware,
+                "cost_tier": cost_tier,
+                "model_tiers": model_config
+            }
+            
+            # Set overall model status
+            all_models_available = all(tier["available"] for tier in model_config.values())
+            current_model_available = current_model in available_models
+            
+            if all_models_available and current_model_available:
+                results["models"]["status"] = "ok"
+                results["models"]["message"] = "All configured models are available"
+            elif not current_model_available:
+                results["models"]["status"] = "error"
+                results["models"]["message"] = f"Current model {current_model} is not available"
+            else:
+                results["models"]["status"] = "warning"
+                results["models"]["message"] = "Some configured models are not available"
+                
     except Exception as e:
         results["openai_api"]["status"] = "error"
         results["openai_api"]["message"] = f"API check error: {str(e)}"
         current_app.logger.error(f"OpenAI API check failed: {str(e)}")
     
     # Check environment variables
-    env_vars = ["DB_PROTOCOL", "DB_USER", "DB_PASSWORD", "DB_HOST", "DB_PORT", "DB_NAME", "OPENAI_API_KEY", "SCHEMA_FOLDER"]
+    env_vars = [
+        "DB_PROTOCOL", "DB_USER", "DB_PASSWORD", "DB_HOST", "DB_PORT", "DB_NAME",
+        "OPENAI_API_KEY", "SCHEMA_FOLDER",
+        "ECONOMY_MODEL", "STANDARD_MODEL", "PREMIUM_MODEL",
+        "USE_SCHEMA_AWARE_MODEL", "SQL_MODEL", "COST_TIER"
+    ]
     all_present = True
     
     for var in env_vars:

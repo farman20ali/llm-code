@@ -2,28 +2,50 @@ import os
 from flask import Flask
 from dotenv import load_dotenv
 import json
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
 
 # Schema model config file
-SCHEMA_MODEL_CONFIG = '.schema_model_config.json'
+SCHEMA_MODEL_CONFIG = 'schema_model_config.json'
 
 def load_model_config():
-    """Load model configuration from file if it exists"""
-    config = {}
+    """Load model configuration from file or environment variables."""
+    # Look for config in root directory
+    config_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), SCHEMA_MODEL_CONFIG)
+    model_config = {}
     
-    # Check if config file exists
-    if os.path.exists(SCHEMA_MODEL_CONFIG):
+    if os.path.exists(config_file):
         try:
-            with open(SCHEMA_MODEL_CONFIG, 'r') as f:
-                config = json.load(f)
-            print(f"Loaded schema model configuration from {SCHEMA_MODEL_CONFIG}")
-            print(f"Using model: {config.get('SQL_MODEL')}")
+            with open(config_file, 'r') as f:
+                model_config = json.load(f)
+                logger.info(f"Loaded model configuration from {config_file}")
+                logger.info(f"Using model: {model_config.get('model_id')}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Error parsing config file: {str(e)}")
         except Exception as e:
-            print(f"Error loading schema model configuration: {e}")
+            logger.error(f"Error loading config file: {str(e)}")
+    else:
+        raise ValueError(f"Config file {config_file} not found")
     
-    return config
+    # Use exact variable names from config file, with environment variable overrides
+    return {
+        'USE_SCHEMA_AWARE_MODEL': os.environ.get('USE_SCHEMA_AWARE_MODEL', 
+            str(model_config.get('use_schema_aware_model', 'true'))).lower() == 'true',
+        'SQL_MODEL': os.environ.get('SQL_MODEL', 
+            model_config.get('model_id', 'gpt-3.5-turbo')),
+        'COST_TIER': os.environ.get('COST_TIER', 
+            model_config.get('cost_tier', 'economy')).lower(),
+        'TEMPERATURE': float(os.environ.get('TEMPERATURE', 
+            str(model_config.get('temperature', '0.0')))),
+        'MAX_TOKENS': int(os.environ.get('MAX_TOKENS', 
+            str(model_config.get('max_tokens', '2048'))))
+    }
 
 def create_app(test_config=None):
     """Create and configure the Flask application."""
@@ -56,14 +78,16 @@ def create_app(test_config=None):
         OPENAI_API_KEY=os.environ.get('OPENAI_API_KEY'),
         SCHEMA_FOLDER=os.environ.get('SCHEMA_FOLDER', os.path.join(app.root_path, '..', 'scripts')),
         # SQL model configuration - environment variables override file config
-        USE_SCHEMA_AWARE_MODEL=os.environ.get('USE_SCHEMA_AWARE_MODEL', str(model_config.get('USE_SCHEMA_AWARE_MODEL', 'false'))).lower() == 'true',
-        SQL_MODEL=os.environ.get('SQL_MODEL', model_config.get('SQL_MODEL', 'gpt-3.5-turbo')),
+        USE_SCHEMA_AWARE_MODEL=model_config['USE_SCHEMA_AWARE_MODEL'],
+        SQL_MODEL=model_config['SQL_MODEL'],
         # Model options by cost tier (from lowest to highest cost)
         ECONOMY_MODEL=os.environ.get('ECONOMY_MODEL', 'gpt-3.5-turbo'),     # Lowest cost, good for basic queries
         STANDARD_MODEL=os.environ.get('STANDARD_MODEL', 'gpt-4o-mini'),      # Mid-tier cost, good balance
         PREMIUM_MODEL=os.environ.get('PREMIUM_MODEL', 'gpt-4o'),            # Higher cost, best quality
         # Default cost tier to use
-        COST_TIER=os.environ.get('COST_TIER', model_config.get('COST_TIER', 'economy')).lower()
+        COST_TIER=model_config['COST_TIER'],
+        TEMPERATURE=model_config['TEMPERATURE'],
+        MAX_TOKENS=model_config['MAX_TOKENS']
     )
     
     # Log database connection info (without password) for debugging

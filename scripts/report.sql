@@ -1,17 +1,6 @@
 
-
---postgrel extension of postgis
---step1: sudo apt install postgis postgresql-17-postgis-3
---step2: sudo systemctl restart postgresql
---step3: SELECT * FROM pg_available_extensions WHERE name = 'postgis';
---step4: 
 CREATE EXTENSION postgis;
 SELECT postgis_version();
-
-
---drop table accident_reports;
-
-
 
 CREATE TABLE public.accident_reports (
 	report_id serial4 NOT NULL,
@@ -59,28 +48,19 @@ CREATE TABLE public.accident_reports (
     CONSTRAINT fk_accident_reports_apparent_cause FOREIGN KEY (cause) REFERENCES apparent_cause(id)
 );
 
-
--- Convert existing latitude & longitude into the PostGIS geometry format
 UPDATE accident_reports 
 SET gis_coordinates = ST_SetSRID(ST_MakePoint(longitude, latitude), 4326);
 
 CREATE INDEX accidents_location_gist ON accident_reports USING GIST(gis_coordinates);
 
---drop table accident_report_images ;
 
--- Separate table for image URIs
 CREATE TABLE public.accident_report_images (
     image_id SERIAL PRIMARY KEY,
     report_id INT NOT NULL,
     image_uri TEXT NOT NULL,
     uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-    -- Foreign Key linking to accident_reports
     CONSTRAINT accident_report_images_report_id_fkey FOREIGN KEY (report_id) REFERENCES public.accident_reports(report_id) ON DELETE CASCADE
 );
-
-
---drop table "dispatch" ;
 
 CREATE TABLE IF NOT EXISTS dispatch (
     dispatch_id SERIAL PRIMARY KEY,
@@ -98,10 +78,6 @@ CREATE TABLE IF NOT EXISTS dispatch (
 ); 
 
 
-
---drop table vehicle_details ;
-
--- Vehicle Details
 CREATE TABLE IF NOT EXISTS vehicle_details  (
     id SERIAL PRIMARY KEY,
     report_id INT REFERENCES accident_reports(report_id) ON DELETE CASCADE,
@@ -117,9 +93,6 @@ CREATE TABLE IF NOT EXISTS vehicle_details  (
 
 );
 
---drop table driver_details ;
-
--- Driver Details
 CREATE TABLE IF NOT EXISTS driver_details (
     id SERIAL PRIMARY KEY,
     report_id INT REFERENCES accident_reports(report_id) ON DELETE CASCADE,
@@ -129,9 +102,6 @@ CREATE TABLE IF NOT EXISTS driver_details (
     contact_no VARCHAR(20)
 );
 
---drop table passenger_casualties ;
-
--- Passenger & Casualties
 CREATE TABLE IF NOT EXISTS passenger_casualties (
     id SERIAL PRIMARY KEY,
     report_id INT REFERENCES accident_reports(report_id) ON DELETE CASCADE,
@@ -143,9 +113,6 @@ CREATE TABLE IF NOT EXISTS passenger_casualties (
     CONSTRAINT fk_passenger_casualties_causalities_status FOREIGN KEY (type) REFERENCES causalities_status(id)
 );
 
---drop table evidence_collection;
-
--- Evidence Collection
 CREATE TABLE IF NOT EXISTS evidence_collection (
     id SERIAL PRIMARY KEY,
     report_id INT REFERENCES accident_reports(report_id) ON DELETE CASCADE,
@@ -154,9 +121,6 @@ CREATE TABLE IF NOT EXISTS evidence_collection (
     sketch BOOLEAN
 );
 
---drop table witness_details;
-
--- Witness Details
 CREATE TABLE IF NOT EXISTS witness_details (
     id SERIAL PRIMARY KEY,
     report_id INT REFERENCES accident_reports(report_id) ON DELETE CASCADE,
@@ -165,9 +129,6 @@ CREATE TABLE IF NOT EXISTS witness_details (
     address TEXT
 );
 
---drop table follow_up_actions;
-
--- Follow-Up Actions
 CREATE TABLE IF NOT EXISTS follow_up_actions (
     id SERIAL PRIMARY KEY,
     report_id INT REFERENCES accident_reports(report_id) ON DELETE CASCADE,
@@ -179,10 +140,6 @@ CREATE TABLE IF NOT EXISTS follow_up_actions (
     CONSTRAINT fk_follow_up_actions_case_referred FOREIGN KEY (case_referred_to) REFERENCES case_referred_to(id)
 );
 
--- 🚀 SQL Script for Vehicle Fitness & Document Verification
-
---drop table accident_vehicle_fitness;
-
 CREATE TABLE public.accident_vehicle_fitness (
     fitness_id SERIAL PRIMARY KEY,
     report_id INT NOT NULL,
@@ -191,8 +148,6 @@ CREATE TABLE public.accident_vehicle_fitness (
     expiry_date DATE,
     road_tax_status int4 NULL,
     insurance_status int4 NULL,
-
-    -- Foreign Key linking to accident_reports
     CONSTRAINT accident_vehicle_fitness_report_id_fkey FOREIGN KEY (report_id) REFERENCES public.accident_reports(report_id) ON DELETE CASCADE,
     CONSTRAINT fk_accident_vehicle_fitness_road_tax_status FOREIGN KEY (road_tax_status) REFERENCES road_tax_status(id),
     CONSTRAINT fk_accident_vehicle_fitness_insurance_status FOREIGN KEY (insurance_status) REFERENCES public.insurance_status(id) ON DELETE CASCADE

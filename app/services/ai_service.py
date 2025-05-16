@@ -6,15 +6,19 @@ import os.path
 import json
 import random
 import time
+import re
 
 # Add the parent directory of app to the path to make imports work
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 from app.services.sql_service import SQLService
 system_prompt_global = (
-            "You are a PostgreSQL SQL assistant for a traffic accident reporting system. "
-            "Generate only valid SQL SELECT statements based on user questions. "
-            "Use correct table and column names. Do not include explanations or comments."
-        )
+    "You are a PostgreSQL SQL assistant for a traffic accident reporting system. "
+    "Generate specific and optimized SQL SELECT statements based on user questions. "
+    "Always include relevant WHERE clauses, JOINs, and aggregations as needed. "
+    "Never use SELECT * unless specifically requested. "
+    "Use correct table and column names from the schema. "
+    "Do not include explanations or comments."
+)
 
 class AIService:
     """Service for interacting with OpenAI API."""
@@ -110,11 +114,14 @@ class AIService:
         """Generate SQL queries for a batch of natural language questions."""
         system_prompt = (
             "You are a PostgreSQL SQL assistant for a traffic accident reporting system. "
-            "Generate only valid SQL SELECT statements based on user questions. "
-            "Use correct table and column names. Do not include explanations or comments."
+            "Generate specific and optimized SQL SELECT statements based on user questions. "
+            "Always include relevant WHERE clauses, JOINs, and aggregations as needed. "
+            "Never use SELECT * unless specifically requested. "
+            "Use correct table and column names from the schema. "
+            "Do not include explanations or comments."
         )
 
-        prompt = "Generate SQL queries for the following questions:\n\n"
+        prompt = "Generate SQL queries for the following questions. For each question, provide a specific and optimized query:\n\n"
         for idx, q in enumerate(queries):
             prompt += f"Question {idx+1}: {q}\n"
 
@@ -125,8 +132,10 @@ class AIService:
         ]
 
         client = self.get_client()
+        # Use standard model from config for batch generation
+        model_name = current_app.config.get('STANDARD_MODEL', 'gpt-3.5-turbo')
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=model_name,
             messages=messages,
             temperature=0,
             max_tokens=2048
@@ -144,11 +153,40 @@ class AIService:
             if len(parts) < 2:
                 continue
             sql = parts[1].strip()
+            # Validate SQL is not a default query
+            if "SELECT * FROM accident_reports LIMIT 10" in sql:
+                # Generate a more specific query based on the question
+                question = queries[len(extracted_sql)]
+                retry_messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "system", "content": f"Schema:\n{schema}"},
+                    {"role": "user", "content": f"Generate a specific SQL query for: {question}"}
+                ]
+                retry_response = client.chat.completions.create(
+                    model=model_name,
+                    messages=retry_messages,
+                    temperature=0,
+                    max_tokens=1024
+                )
+                sql = retry_response.choices[0].message.content.strip()
             extracted_sql.append(sql)
 
-        # Pad if missing
+        # Pad if missing with specific queries
         while len(extracted_sql) < len(queries):
-            extracted_sql.append("SELECT * FROM accident_reports LIMIT 10;")
+            question = queries[len(extracted_sql)]
+            retry_messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": f"Schema:\n{schema}"},
+                {"role": "user", "content": f"Generate a specific SQL query for: {question}"}
+            ]
+            retry_response = client.chat.completions.create(
+                model=model_name,
+                messages=retry_messages,
+                temperature=0,
+                max_tokens=1024
+            )
+            sql = retry_response.choices[0].message.content.strip()
+            extracted_sql.append(sql)
 
         examples = []
         for user_msg, sql_msg in zip(queries, extracted_sql):
@@ -196,7 +234,11 @@ class AIService:
         # If not in cache, load it and store in cache
         current_app.logger.info(f"Loading schema from {schema_folder}")
         schema = SQLService.load_schema_from_folder(schema_folder)
-        AIService._schema_cache[schema_folder] = schema
+        
+        # Compress schema before caching
+        # compressed_schema = AIService._compress_schema(schema)
+        # AIService._schema_cache[schema_folder] = compressed_schema
+        
         return schema
     
     @staticmethod
@@ -222,56 +264,41 @@ class AIService:
             return 'gpt-3.5-turbo'
     
     def generate_fine_tuning_data(self, num_examples=15, output_file=None, compress_schema=True):
-        """Generate fine-tuning data to create a schema-aware model.
-        
-        Args:
-            num_examples: Number of examples to generate
-            output_file: Path to save fine-tuning data (generated if not provided)
-            compress_schema: Whether to compress the schema to reduce tokens
-            
-        Returns:
-            str: Path to the output file if successful, None otherwise
-        """
+        """Generate fine-tuning data to create a schema-aware model."""
         try:
             schema_folder = current_app.config.get('SCHEMA_FOLDER')
             current_app.logger.info(f"Generating fine-tuning data from schema in {schema_folder}")
-            
-            # Generate default output file if not provided
+
             if not output_file:
                 timestamp = int(time.time())
-                output_file = f"fine_tuning_data_{timestamp}.jsonl"
-                # If schema folder is set, save there
-                if schema_folder:
-                    output_file = os.path.join(schema_folder, output_file)
-            
-            # Load schema
+                output_file = os.path.join(schema_folder, f"fine_tuning_data_{timestamp}.jsonl")
+
+            # Load and compress schema
             schema = self.get_schema(schema_folder)
-            
-            # Compress schema if requested to reduce token usage
             if compress_schema:
                 current_app.logger.info("Compressing schema to reduce token usage")
                 schema = self._compress_schema(schema)
-            
-            # Sample queries to use as examples
+
+            # More diverse and specific sample queries
             sample_queries = [
-                "Show all severe accidents in Karachi from last month",
-                "How many accidents involved motorcycles in Lahore?",
-                "Count the number of accidents by type in Islamabad",
-                "Find accidents with more than 3 casualties",
-                "List all accidents where ambulances were dispatched",
-                "Show accidents with hospital transfers in the last week",
-                "Find average response time for ambulances in Karachi",
-                "List all accidents involving pedestrians",
-                "Show accidents with driver negligence as the cause",
-                "Count accidents by weather condition",
-                "What areas have the highest number of accidents?",
-                "Show accidents that occurred during rainy weather",
-                "Which vehicle type is involved in the most accidents?",
-                "List all dispatches that took more than 30 minutes",
-                "Show accidents on highways with poor visibility"
+                "Show all severe accidents (severity > 3) in Karachi from last month with their locations and number of casualties",
+                "How many accidents involved motorcycles in Lahore? Include the accident type and severity",
+                "Count the number of accidents by type in Islamabad, ordered by frequency",
+                "Find accidents with more than 3 casualties requiring hospital transfer, including the hospital name",
+                "List all accidents where ambulances were dispatched within 10 minutes, with response times",
+                "Show accidents with hospital transfers in the last week, including patient details",
+                "Find average response time for ambulances in Karachi by accident type",
+                "List all accidents involving pedestrians with their severity and weather conditions",
+                "Show accidents with driver negligence as the cause, including vehicle details",
+                "Count accidents by weather condition and road surface type",
+                "What areas have the highest number of accidents? Include accident type and severity",
+                "Show accidents that occurred during rainy weather with poor visibility",
+                "Which vehicle type is involved in the most accidents? Include accident type and severity",
+                "List all dispatches that took more than 30 minutes, with reasons for delay",
+                "Show accidents on highways with poor visibility, including weather conditions"
             ]
-            
-            # Generate query variations
+
+            # Add variations with different phrasings
             all_queries = []
             for query in sample_queries:
                 all_queries.append(query)
@@ -280,95 +307,108 @@ class AIService:
                 all_queries.append(query.replace("Find", "Get"))
                 all_queries.append(f"I need to {query.lower()}")
                 all_queries.append(f"Could you {query.lower()}?")
-            
+                all_queries.append(f"Please provide {query.lower()}")
+                all_queries.append(f"Give me {query.lower()}")
+
             # Select random subset if we have more than needed
             if len(all_queries) > num_examples:
                 all_queries = random.sample(all_queries, num_examples)
             elif len(all_queries) < num_examples:
-                # If we need more examples, duplicate and modify some
+                # If we need more examples, create variations of existing queries
                 while len(all_queries) < num_examples:
                     base_query = random.choice(sample_queries)
                     variation = f"Please tell me about {base_query.lower().replace('show', '').replace('find', '').replace('list', '')}"
                     all_queries.append(variation)
-            
-            # =================== OPTIMIZED BATCH APPROACH =====================
-            current_app.logger.info(f"Generating SQL for {len(all_queries)} queries using batch approach")
-            
+
             # Generate fine-tuning examples
             examples = []
             
             # Create a single batch request for all queries
-            batch_prompt = "Generate SQL queries for the following questions. For each question, output only the SQL query without any explanations or formatting:\n\n"
+            batch_prompt = "Generate specific and optimized SQL queries for the following questions. For each question, provide a detailed query with appropriate JOINs, WHERE clauses, and aggregations:\n\n"
             for i, query in enumerate(all_queries):
                 batch_prompt += f"Question {i+1}: {query}\n"
-            
+
             # Make a single API call for all examples
             model_name = "gpt-3.5-turbo-1106"  # Use a more cost-effective model for batch generation
             client = self.get_client()
             system_prompt = (
-            "You are a PostgreSQL SQL assistant for a traffic accident reporting system. "
-            "Generate only valid SQL SELECT statements based on user questions. "
-            "Use correct table and column names. Do not include explanations or comments."
-        )
+                "You are a PostgreSQL SQL assistant for a traffic accident reporting system. "
+                "Generate specific and optimized SQL SELECT statements based on user questions. "
+                "Always include relevant WHERE clauses, JOINs, and aggregations as needed. "
+                "Never use SELECT * unless specifically requested. "
+                "Use correct table and column names from the schema. "
+                "Do not include explanations or comments."
+            )
+
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "system", "content": f"Database schema definitions and some lovs data:\n{schema}"},
+                {"role": "system", "content": f"Schema:\n{schema}"},
                 {"role": "user", "content": batch_prompt}
             ]
-            
-            current_app.logger.info("Sending batch request to generate SQL queries")
-            token_estimate = len(schema) // 4
-            current_app.logger.info(f"Estimated schema tokens: ~{token_estimate} (sent only once)")
-            
-            # Calculate max tokens to avoid hitting context limits
-            max_tokens_per_query = 200  # Reasonable estimate for SQL query length
-            max_tokens = len(all_queries) * max_tokens_per_query
-            current_app.logger.info(f"Setting max_tokens={max_tokens} for batch response")
-            
+
             response = client.chat.completions.create(
                 model=model_name,
                 messages=messages,
                 temperature=0,
-                max_tokens=max_tokens
+                max_tokens=2048
             )
-            
-            # Parse the response to extract individual SQL queries
+
             response_text = response.choices[0].message.content.strip()
-            current_app.logger.info("Received batch response, parsing SQL queries")
-            
-            # Split by SQL query markers
             sql_blocks = response_text.split("SQL ")
-            
-            # Process each SQL query
+
+            # Extract SQLs
             extracted_queries = []
             for block in sql_blocks:
                 if not block.strip():
                     continue
-                    
-                # Extract the query part after the number and colon
                 parts = block.split(":", 1)
                 if len(parts) < 2:
                     continue
-                    
                 sql = parts[1].strip()
+                # Validate SQL is not a default query
+                if "SELECT * FROM accident_reports LIMIT 10" in sql:
+                    # Generate a more specific query based on the question
+                    question = all_queries[len(extracted_queries)]
+                    retry_messages = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "system", "content": f"Schema:\n{schema}"},
+                        {"role": "user", "content": f"Generate a specific SQL query for: {question}"}
+                    ]
+                    retry_response = client.chat.completions.create(
+                        model=model_name,
+                        messages=retry_messages,
+                        temperature=0,
+                        max_tokens=1024
+                    )
+                    sql = retry_response.choices[0].message.content.strip()
                 extracted_queries.append(sql)
-            
-            # Match SQL queries back to original questions
-            current_app.logger.info(f"Extracted {len(extracted_queries)} SQL queries from response")
-            
+
             # Ensure we have enough queries
             if len(extracted_queries) < len(all_queries):
                 current_app.logger.warning(f"Only extracted {len(extracted_queries)} SQL queries for {len(all_queries)} questions")
-                # Pad with placeholders if needed
+                # Generate specific queries for missing ones
                 while len(extracted_queries) < len(all_queries):
-                    extracted_queries.append("SELECT * FROM accident_reports LIMIT 10")
-            
+                    question = all_queries[len(extracted_queries)]
+                    retry_messages = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "system", "content": f"Schema:\n{schema}"},
+                        {"role": "user", "content": f"Generate a specific SQL query for: {question}"}
+                    ]
+                    retry_response = client.chat.completions.create(
+                        model=model_name,
+                        messages=retry_messages,
+                        temperature=0,
+                        max_tokens=1024
+                    )
+                    sql = retry_response.choices[0].message.content.strip()
+                    extracted_queries.append(sql)
+
             # Create the training examples
             for i, (query, sql) in enumerate(zip(all_queries, extracted_queries)):
                 # Create fine-tuning example
                 example = {
                     "messages": [
-                        {"role": "system", "content": "You are an assistant that generates SQL queries for a Traffic Accident Reporting System. ONLY output a single valid SQL SELECT statement, and nothing else."},
+                        {"role": "system", "content": system_prompt},
                         {"role": "user", "content": query},
                         {"role": "assistant", "content": sql}
                     ]
@@ -376,16 +416,16 @@ class AIService:
                 
                 examples.append(example)
                 current_app.logger.info(f"Created example {i+1}/{len(all_queries)}: {query}")
-            
+
             # Save to file
             with open(output_file, 'w') as f:
                 for example in examples:
                     f.write(json.dumps(example) + '\n')
-            
+
             current_app.logger.info(f"Saved {len(examples)} fine-tuning examples to {output_file}")
             current_app.logger.info("Token usage significantly reduced by using batch approach")
             return output_file
-        
+
         except Exception as e:
             current_app.logger.error(f"Error generating fine-tuning data: {str(e)}")
             return None
@@ -414,9 +454,11 @@ class AIService:
             
             # Create fine-tuning job
             current_app.logger.info(f"Creating fine-tuning job with file ID: {training_file.id}")
+            # Use economy model from config as base model
+            base_model = current_app.config.get('ECONOMY_MODEL', 'gpt-3.5-turbo')
             job = client.fine_tuning.jobs.create(
                 training_file=training_file.id,
-                model="gpt-3.5-turbo",  # Base model to fine-tune
+                model=base_model,  # Base model to fine-tune
                 suffix=suffix
             )
             
@@ -429,7 +471,7 @@ class AIService:
             
             # Get the model ID from the job
             # The model ID will be in format "ft:gpt-3.5-turbo-0125:[org]:custom:[suffix]-[timestamp]"
-            model_id = f"ft:{job_status.model if job_status.model else 'gpt-3.5-turbo'}"
+            model_id = f"ft:{job_status.model if job_status.model else base_model}"
             
             # Important: Note that the fine-tuning job will continue running in the 
             # background and may take 1-4 hours to complete
@@ -502,7 +544,7 @@ class AIService:
         
         # Check if we're using a pre-trained model that already knows the schema
         use_schema_aware_model = current_app.config.get('USE_SCHEMA_AWARE_MODEL', True)
-        
+        current_app.logger.info(f"Using schema-aware model: {use_schema_aware_model}")
         # Get the appropriate model based on cost tier (can be overridden by SQL_MODEL config)
         model_name = current_app.config.get('SQL_MODEL', AIService.get_model_by_cost_tier(cost_tier))
                 # at top of your request logic
@@ -521,14 +563,7 @@ class AIService:
                 {"role": "user", "content": question}
             ]
         else:
-            # Standard approach: load schema and include it with the request
-            current_app.logger.info(f"Including schema with request to model: {model_name}")
-            schema = AIService.get_schema(schema_folder)
-            messages = [
-                {"role": "system", "content": system_prompt_global},
-                {"role": "system", "content": f"Database schema definitions:\n{schema}"},
-                {"role": "user", "content": question}
-            ]
+            raise ValueError(f"not using schema-aware model: {model_name}")
         
         # Log token usage estimation based on approach
         if not use_schema_aware_model:
@@ -588,8 +623,10 @@ class AIService:
             {"role": "user", "content": f"SQL Query:\n{sql}\n\nResult Table:\n{table_md}"}
         ]
         
+        # Use standard model from config for insights
+        model_name = current_app.config.get('STANDARD_MODEL', 'gpt-3.5-turbo')
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=model_name,
             messages=messages,
             temperature=0.2
         )
@@ -647,9 +684,10 @@ class AIService:
                 {"role": "user", "content": f"Data summary: {data_summary}"}
             ]
             
-            # Call the chat model directly
+            # Use standard model from config for insights
+            model_name = current_app.config.get('STANDARD_MODEL', 'gpt-3.5-turbo')
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=model_name,
                 messages=messages,
                 temperature=0.3,
                 max_tokens=300
@@ -705,9 +743,10 @@ class AIService:
         context = f"Data about incidents: {str(data)}\n\n"
         full_prompt = context + prompt
         
-        # Call the OpenAI API
+        # Use standard model from config for insights
+        model_name = current_app.config.get('STANDARD_MODEL', 'gpt-3.5-turbo')
         response = client.chat.completions.create(
-            model="gpt-4o-mini",  # Use appropriate model
+            model=model_name,
             messages=[
                 {"role": "system", "content": """You are a concise incident analyst. Analyze the data and provide:
 1. THREE key points (1-2 sentences each)
@@ -743,7 +782,7 @@ Keep total response under 150 words."""},
     @staticmethod
     def _compress_schema(schema):
         """Compress schema to reduce token usage.
-        This creates a more compact representation focusing on table names and columns.
+        This creates a more compact representation focusing on table names, columns, and sample data.
         
         Args:
             schema: Original schema string
@@ -756,61 +795,188 @@ Keep total response under 150 words."""},
             tables = []
             lines = schema.split('\n')
             current_table = None
+            current_columns = []
+            current_inserts = []
             
             for line in lines:
                 line = line.strip()
+                
+                # Skip empty lines
+                if not line:
+                    continue
+                    
                 # Look for CREATE TABLE statements
-                if line.startswith('CREATE TABLE') and '(' in line:
+                if line.startswith('CREATE TABLE'):
+                    if current_table and current_columns:
+                        tables.append({
+                            'name': current_table,
+                            'columns': current_columns,
+                            'sample_data': current_inserts
+                        })
                     table_name = line.split('CREATE TABLE')[1].split('(')[0].strip()
-                    current_table = {'name': table_name, 'columns': []}
-                    tables.append(current_table)
+                    current_table = table_name
+                    current_columns = []
+                    current_inserts = []
                 
                 # Look for column definitions when we're inside a table
                 elif current_table and line and line[0].isalnum() and ' ' in line:
-                    # Simple parsing for column definitions
-                    col_parts = line.split(' ', 1)
-                    if len(col_parts) == 2:
-                        col_name = col_parts[0].replace(',', '').strip()
-                        col_type = col_parts[1].replace(',', '').strip()
-                        if col_name and not col_name.upper() in ['PRIMARY', 'FOREIGN', 'CONSTRAINT', 'CHECK']:
-                            current_table['columns'].append(f"{col_name}({col_type})")
+                    # Skip constraint lines
+                    if any(keyword in line.upper() for keyword in ['PRIMARY', 'FOREIGN', 'CONSTRAINT', 'CHECK', 'UNIQUE']):
+                        continue
+                        
+                    # Parse column definition
+                    parts = line.split(' ', 1)
+                    if len(parts) == 2:
+                        col_name = parts[0].replace(',', '').strip()
+                        col_type = parts[1].split(',')[0].strip()  # Take only the type part
+                        if col_name and col_type:
+                            current_columns.append(f"{col_name}({col_type})")
+                
+                # Look for INSERT statements
+                elif 'INSERT INTO' in line.upper():
+                    # Extract table name and values
+                    insert_match = re.search(r'INSERT INTO\s+([^\s]+)\s+VALUES\s*\((.*?)\)', line, re.IGNORECASE)
+                    if insert_match:
+                        table_name = insert_match.group(1)
+                        values = insert_match.group(2)
+                        # Clean up and format values
+                        values = values.replace("'", "").replace('"', '')
+                        # Find the table in our list
+                        for table in tables:
+                            if table['name'] == table_name:
+                                table['sample_data'].append(values)
+                                break
                 
                 # End of table definition
                 elif line.startswith(');'):
+                    if current_table and current_columns:
+                        tables.append({
+                            'name': current_table,
+                            'columns': current_columns,
+                            'sample_data': current_inserts
+                        })
                     current_table = None
-            
-            # Extract sample data patterns from LOV DATA sections
-            lov_data = []
-            in_lov = False
-            lov_section = ""
-            
-            for line in lines:
-                if "-- LOV DATA" in line:
-                    in_lov = True
-                    lov_section = line.strip() + "\n"
-                elif in_lov and "-- END LOV DATA" in line:
-                    lov_section += line.strip()
-                    lov_data.append(lov_section)
-                    in_lov = False
-                elif in_lov:
-                    lov_section += line.strip() + "\n"
+                    current_columns = []
+                    current_inserts = []
             
             # Build compressed schema
-            compressed = "-- COMPRESSED SCHEMA FOR TOKEN EFFICIENCY\n\n"
+            compressed = "-- COMPRESSED SCHEMA\n\n"
             
             # Add tables in compact form
-            compressed += "-- TABLES\n"
             for table in tables:
-                compressed += f"• {table['name']}({', '.join(table['columns'])})\n"
+                compressed += f"Table: {table['name']}\n"
+                compressed += f"Columns: {', '.join(table['columns'])}\n"
+                if table['sample_data']:
+                    # Show up to 3 sample rows, but only if they exist
+                    sample_data = [d for d in table['sample_data'] if d.strip()]
+                    if sample_data:
+                        compressed += f"Sample Data: {', '.join(sample_data[:3])}\n"
+                compressed += "\n"
             
-            # Add key sample data patterns (limit to 3)
-            if lov_data:
-                compressed += "\n-- SAMPLE DATA PATTERNS\n"
-                for i, lov in enumerate(lov_data[:3]):
-                    compressed += f"{lov}\n"
+            # Add key relationships
+            compressed += "-- KEY RELATIONSHIPS\n"
+            for line in lines:
+                if 'FOREIGN KEY' in line.upper():
+                    # Extract just the essential relationship info
+                    parts = line.split('REFERENCES')
+                    if len(parts) == 2:
+                        fk_table = parts[0].split('(')[0].strip()
+                        ref_table = parts[1].split('(')[0].strip()
+                        compressed += f"{fk_table} -> {ref_table}\n"
             
             return compressed
             
         except Exception as e:
             current_app.logger.warning(f"Schema compression failed, using original schema: {str(e)}")
-            return schema 
+            return schema
+
+    @staticmethod
+    def list_fine_tuned_models():
+        """List all fine-tuned models in the account.
+        
+        Returns:
+            list: List of model information dictionaries
+        """
+        try:
+            client = AIService.get_client()
+            jobs = client.fine_tuning.jobs.list()
+            
+            model_list = []
+            for job in jobs:
+                if job.fine_tuned_model:  # Only include completed jobs with models
+                    # Extract suffix from model ID
+                    suffix = None
+                    if job.fine_tuned_model:
+                        # Model ID format: ft:gpt-3.5-turbo-0125:personal:accident-sql-generator:BXVMbFkQ
+                        parts = job.fine_tuned_model.split(':')
+                        if len(parts) >= 4:
+                            # The last part is usually the unique identifier
+                            suffix = parts[-1]
+                    
+                    model_list.append({
+                        'model_id': job.fine_tuned_model,
+                        'status': job.status,
+                        'created_at': job.created_at,
+                        'finished_at': job.finished_at,
+                        'base_model': job.model,
+                        'training_file': job.training_file,
+                        'trained_tokens': job.trained_tokens,
+                        'suffix': suffix
+                    })
+            
+            return model_list
+        except Exception as e:
+            current_app.logger.error(f"Error listing fine-tuned models: {str(e)}")
+            return []
+
+    @staticmethod
+    def delete_fine_tuned_model(model_id: str) -> bool:
+        """Delete a fine-tuned model.
+        
+        Args:
+            model_id: The ID of the model to delete
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            client = AIService.get_client()
+            client.models.delete(model_id)
+            current_app.logger.info(f"Successfully deleted model: {model_id}")
+            return True
+        except Exception as e:
+            current_app.logger.error(f"Error deleting model {model_id}: {str(e)}")
+            return False
+
+    @staticmethod
+    def cleanup_old_models(days_threshold=30):
+        """Delete fine-tuned models older than the specified threshold.
+        
+        Args:
+            days_threshold: Number of days after which to delete models
+            
+        Returns:
+            tuple: (deleted_count, error_count)
+        """
+        try:
+            from datetime import datetime, timedelta
+            client = AIService.get_client()
+            models = client.fine_tuning.jobs.list()
+            
+            deleted_count = 0
+            error_count = 0
+            threshold_date = datetime.now() - timedelta(days=days_threshold)
+            
+            for job in models:
+                if job.fine_tuned_model and job.created_at:
+                    created_date = datetime.fromtimestamp(job.created_at)
+                    if created_date < threshold_date:
+                        if AIService.delete_fine_tuned_model(job.fine_tuned_model):
+                            deleted_count += 1
+                        else:
+                            error_count += 1
+            
+            return deleted_count, error_count
+        except Exception as e:
+            current_app.logger.error(f"Error cleaning up old models: {str(e)}")
+            return 0, 0 
