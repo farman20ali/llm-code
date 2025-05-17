@@ -181,3 +181,61 @@ docker system prune -f
 docker-compose build --no-cache
 docker-compose up -d
 docker logs $(docker ps -q --filter name=web) | cat
+
+# deploying using gcorn
+## directory structure
+myapp/
+├── app.py
+├── requirements.txt
+├── wsgi.py
+
+# wsgi.py
+from app import create_app
+
+app = create_app()
+
+# install dependencies in virtual environment
+
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# if gunicorn is not installed
+pip install gunicorn
+
+# run and test
+gunicorn --bind 0.0.0.0:8000 wsgi:app
+
+# deploying as service
+create file 
+sudo nano /etc/systemd/system/aisql.service
+
+or copy from current directory
+
+to find user type whoami
+
+## content of aisql
+----------------------
+[Unit]
+Description=Gunicorn instance to serve AI SQL Flask App
+After=network.target
+
+[Service]
+User=root
+Group=www-data
+WorkingDirectory=/home/farman/farman_ws/llm-code
+Environment="PATH=/home/farman/farman_ws/llm-code/venv/bin"
+ExecStart=/home/farman/farman_ws/llm-code/venv/bin/gunicorn --workers 3 --bind 0.0.0.0:5000 wsgi:app
+
+[Install]
+WantedBy=multi-user.target
+
+---------------------
+
+
+now run:
+sudo systemctl daemon-reexec
+sudo systemctl daemon-reload
+sudo systemctl start aisql
+sudo systemctl enable aisql
+

@@ -1,0 +1,13 @@
+[Unit]
+Description=Gunicorn instance to serve AI SQL Flask App
+After=network.target
+
+[Service]
+User=farman
+Group=www-data
+WorkingDirectory=/home/farman/farman_ws/llm-code
+Environment="PATH=/home/farman/farman_ws/llm-code/venv/bin"
+ExecStart=/home/farman/farman_ws/llm-code/venv/bin/gunicorn --workers 3 --bind 0.0.0.0:5000 wsgi:app
+
+[Install]
+WantedBy=multi-user.target
