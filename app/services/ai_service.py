@@ -39,8 +39,7 @@ class AIService:
             
             # Initialize client with minimal configuration
             client = OpenAI(
-                api_key=api_key,
-                base_url="https://api.openai.com/v1"
+                api_key=api_key
             )
             
             # Test the client by listing models

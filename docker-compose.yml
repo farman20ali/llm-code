@@ -3,8 +3,8 @@ version: '3.8'
 services:
   web:
     build: .
-    ports:
-      - "5000:5000"
+    # ports:
+    #   - "5000:5000"
     env_file:
       - .env
     environment:
@@ -16,4 +16,5 @@ services:
       - MAX_TOKENS=2048
     volumes:
       - .:/app
-    restart: unless-stopped 
+    restart: unless-stopped
+    network_mode: host  # <-- added line
