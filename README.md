@@ -239,3 +239,9 @@ sudo systemctl daemon-reload
 sudo systemctl start aisql
 sudo systemctl enable aisql
 
+
+# deploying using script
+chmod +x deploy_flask.sh
+./deploy_flask.sh
+
+
