@@ -3,7 +3,8 @@ from flask import Flask
 from dotenv import load_dotenv
 import json
 import logging
-
+from app.routes.sql_routes import sql_bp
+from app.routes.query_routes import query_bp
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -58,9 +59,9 @@ def create_app(test_config=None):
     db_host = os.environ.get('DB_HOST', 'localhost')
     db_port = os.environ.get('DB_PORT', '5432')
     db_name = os.environ.get('DB_NAME', 'insights')
-    
     # Build the database URL from individual components
     db_url = f"{db_protocol}{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+    database_uri=os.environ.get('DATABASE_URL',db_url)
     
     # Load model configuration from file
     model_config = load_model_config()
@@ -69,6 +70,7 @@ def create_app(test_config=None):
     app.config.from_mapping(
         SECRET_KEY=os.environ.get('SECRET_KEY', 'dev'),
         DATABASE_URL=db_url,
+        DATABASE_URI=database_uri,
         DB_PROTOCOL=db_protocol,
         DB_USER=db_user,
         DB_PASSWORD=db_password,
@@ -111,7 +113,10 @@ def create_app(test_config=None):
     
     # Register blueprints
     from app.routes import main, api
+    
     app.register_blueprint(main.bp)
     app.register_blueprint(api.bp)
+    app.register_blueprint(sql_bp, url_prefix='/api/sql')
+    app.register_blueprint(query_bp,url_prefix='/query')
     
     return app 
