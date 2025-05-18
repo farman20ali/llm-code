@@ -19,6 +19,7 @@ import argparse
 import openai
 from pathlib import Path
 import logging
+import time
 # Add the parent directory to the path so we can import from app
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -54,7 +55,7 @@ def parse_args():
                         help='Use schema-aware approach (default: True)')
     parser.add_argument('--compress-schema', 
                         action='store_true',
-                        default=False,
+                        default=True,
                         help='Compress schema to reduce token usage (default: False)')
     return parser.parse_args()
 
@@ -65,9 +66,31 @@ def create_app():
     # Configure the app with minimal settings
     app.config['SCHEMA_FOLDER'] = os.path.join(os.path.dirname(__file__))
     app.config['OPENAI_API_KEY'] = os.environ.get('OPENAI_API_KEY')
+    if not app.config['OPENAI_API_KEY']:
+        raise ValueError("OPENAI_API_KEY environment variable is required")
+    
+    # Model configuration
+    app.config['COST_TIER'] = os.environ.get('COST_TIER', 'economy')
+    app.config['USE_SCHEMA_AWARE_MODEL'] = os.environ.get('USE_SCHEMA_AWARE_MODEL', 'true').lower() == 'true'
+    
+    # Model names based on cost tier
+    app.config['ECONOMY_MODEL'] = os.environ.get('ECONOMY_MODEL', 'gpt-3.5-turbo')
+    app.config['STANDARD_MODEL'] = os.environ.get('STANDARD_MODEL', 'gpt-4o-mini')
+    app.config['PREMIUM_MODEL'] = os.environ.get('PREMIUM_MODEL', 'gpt-4o')
+    
+    # SQL model configuration
+    app.config['SQL_MODEL'] = os.environ.get('SQL_MODEL')
+    
+    # Log configuration
+    app.logger.info("Application configuration loaded:")
+    app.logger.info(f"Cost Tier: {app.config['COST_TIER']}")
+    app.logger.info(f"Use Schema Aware Model: {app.config['USE_SCHEMA_AWARE_MODEL']}")
+    app.logger.info(f"Economy Model: {app.config['ECONOMY_MODEL']}")
+    app.logger.info(f"Standard Model: {app.config['STANDARD_MODEL']}")
+    app.logger.info(f"Premium Model: {app.config['PREMIUM_MODEL']}")
+    app.logger.info(f"SQL Model: {app.config['SQL_MODEL']}")
+    
     return app
-
-
 
 def setup_logger(app):
     # Enable debug level logging
@@ -90,6 +113,61 @@ def setup_logger(app):
     # Optional: disable Werkzeug logs if noisy
     logging.getLogger('werkzeug').setLevel(logging.WARNING)
 
+def find_existing_training_files(schema_folder):
+    """Find existing .jsonl training files in the schema folder."""
+    training_files = []
+    for file in os.listdir(schema_folder):
+        if file.endswith('.jsonl'):
+            full_path = os.path.join(schema_folder, file)
+            # Get file creation time and size
+            stats = os.stat(full_path)
+            training_files.append({
+                'path': full_path,
+                'name': file,
+                'created': stats.st_ctime,
+                'size': stats.st_size
+            })
+    return sorted(training_files, key=lambda x: x['created'], reverse=True)
+
+def prompt_for_training_file(training_files):
+    """Prompt user to select a training file or generate new one."""
+    if not training_files:
+        print("\nNo existing training files found.")
+        while True:
+            choice = input("Would you like to generate a new training file? (y/n): ").strip().lower()
+            if choice in ['y', 'yes']:
+                return None
+            elif choice in ['n', 'no']:
+                return "STOP"
+            print("Please enter 'y' or 'n'")
+        
+    print("\nExisting training files:")
+    for i, file in enumerate(training_files, 1):
+        created = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(file['created']))
+        size_mb = file['size'] / (1024 * 1024)
+        print(f"{i}. {file['name']} (Created: {created}, Size: {size_mb:.2f} MB)")
+    
+    print("\nOptions:")
+    print("0. Generate new training file")
+    
+    while True:
+        try:
+            choice = input("\nSelect a file number (0 for new file): ").strip()
+            if choice == '0':
+                while True:
+                    confirm = input("Are you sure you want to generate a new training file? (y/n): ").strip().lower()
+                    if confirm in ['y', 'yes']:
+                        return None
+                    elif confirm in ['n', 'no']:
+                        return "STOP"
+                    print("Please enter 'y' or 'n'")
+            choice = int(choice)
+            if 1 <= choice <= len(training_files):
+                return training_files[choice - 1]['path']
+            print("Invalid selection. Please try again.")
+        except ValueError:
+            print("Please enter a valid number.")
+
 def main():
     """Main function to set up the schema model"""
     args = parse_args()
@@ -102,44 +180,60 @@ def main():
         ai_service = AIService()
         
         # Check if we need to create a model or use an existing one
-        model_id = args.model_id
+        model_id = args.model_id or os.environ.get('SQL_MODEL')
         
         if args.create_model or not model_id:
-            print(f"Generating fine-tuning data with batch {args.examples} examples...")
+            # Look for existing training files
+            training_files = find_existing_training_files(app.config['SCHEMA_FOLDER'])
+            selected_file = prompt_for_training_file(training_files)
             
-            # # Generate fine-tuning data
-            # data_file = ai_service.generate_fine_tuning_data(
-            #     num_examples=args.examples,
-            #     compress_schema=args.compress_schema
-            # )
-            # Generate fine-tuning data
-            data_file = ai_service.generate_fine_tuning_data_batch(
-                num_examples=args.examples,
-                compress_schema=args.compress_schema
-            )
-            
-            if not data_file:
-                print("Failed to generate fine-tuning data")
-                return 1
+            if selected_file == "STOP":
+                app.logger.info("Operation cancelled by user")
+                return 0
+            elif selected_file:
+                app.logger.info(f"Using existing training file: {selected_file}")
+                data_file = selected_file
+            else:
+                app.logger.info(f"Generating new fine-tuning data with {args.examples} examples...")
                 
-            print(f"Fine-tuning data generated: {data_file}")
+                # Generate fine-tuning data
+                data_file = ai_service.generate_fine_tuning_data_batch(
+                    num_examples=args.examples,
+                    compress_schema=args.compress_schema
+                )
+                
+                if not data_file:
+                    app.logger.error("Failed to generate fine-tuning data")
+                    return 1
+                    
+                app.logger.info(f"Fine-tuning data generated: {data_file}")
+                
+                # Prompt user to continue with model creation
+                while True:
+                    choice = input("\nTraining file has been created. Would you like to continue with model creation? (y/n): ").strip().lower()
+                    if choice in ['y', 'yes']:
+                        break
+                    elif choice in ['n', 'no']:
+                        app.logger.info("Operation stopped by user. Training file is saved for later use.")
+                        return 0
+                    print("Please enter 'y' or 'n'")
             
             # Create the model
-            print("Creating fine-tuned model (this may take a while)...")
+            app.logger.info("Creating fine-tuned model (this may take a while)...")
             model_id = ai_service.create_fine_tuned_model(data_file)
             
             if not model_id:
-                print("Failed to create fine-tuned model")
+                app.logger.error("Failed to create fine-tuned model")
                 return 1
                 
-            print(f"Fine-tuned model created: {model_id}")
+            app.logger.info(f"Fine-tuned model created: {model_id}")
         else:
             # Verify the model exists
             try:
                 openai.models.retrieve(model_id)
-                print(f"Using existing model: {model_id}")
+                app.logger.info(f"Using existing model: {model_id}")
             except Exception as e:
-                print(f"Error retrieving model {model_id}: {e}")
+                app.logger.error(f"Error retrieving model {model_id}: {e}")
                 return 1
         
         # Save the configuration
@@ -154,16 +248,19 @@ def main():
         with open(args.output, 'w') as f:
             json.dump(config, f, indent=2)
             
-        print(f"Configuration saved to {args.output}")
-        print("Schema model setup complete!")
+        app.logger.info(f"Configuration saved to {args.output}")
+        app.logger.info("Schema model setup complete!")
         
         # Display usage instructions
-        print("\nUsage instructions:")
-        print("1. The application will now use this model automatically on startup")
-        print("2. You can override settings with environment variables:")
-        print("   - SQL_MODEL (maps to model_id)")
-        print("   - USE_SCHEMA_AWARE_MODEL (maps to use_schema_aware_model)")
-        print("   - COST_TIER (maps to cost_tier)")
+        app.logger.info("\nUsage instructions:")
+        app.logger.info("1. The application will now use this model automatically on startup")
+        app.logger.info("2. You can override settings with environment variables:")
+        app.logger.info("   - SQL_MODEL (maps to model_id)")
+        app.logger.info("   - USE_SCHEMA_AWARE_MODEL (maps to use_schema_aware_model)")
+        app.logger.info("   - COST_TIER (maps to cost_tier)")
+        app.logger.info("   - ECONOMY_MODEL (default: gpt-3.5-turbo)")
+        app.logger.info("   - STANDARD_MODEL (default: gpt-4o-mini)")
+        app.logger.info("   - PREMIUM_MODEL (default: gpt-4o)")
         
     return 0
 

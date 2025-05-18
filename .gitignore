@@ -38,8 +38,8 @@ logs/
 *.sqlite3
 
 # OpenAI fine-tuning files
-*.jsonl
-training_data*.jsonl
+# *.jsonl
+# training_data*.jsonl
 
 # Local environment configuration
 .env.local

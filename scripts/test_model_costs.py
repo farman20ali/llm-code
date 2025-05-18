@@ -6,7 +6,7 @@ import tiktoken
 
 # Add the parent directory to the path so we can import the app package
 sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
-from app.services.ai_service import AIService
+from app.services.sql_service import SQLService
 
 def count_tokens(text, model="gpt-4"):
     """Count tokens for a given text using tiktoken"""
@@ -83,7 +83,7 @@ def main():
         
         # Use schema size as the main input cost since it dominates
         with app.app_context():
-            schema = AIService.get_schema(script_dir)
+            schema = SQLService.get_schema(script_dir)
             schema_tokens = count_tokens(schema, model)
             total_input_tokens = schema_tokens
         

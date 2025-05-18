@@ -1,5 +1,5 @@
 {
-  "model_id": "ft:gpt-3.5-turbo-0125:personal:accident-sql-generator:BXnWzkLq",
+  "model_id": "ft:gpt-3.5-turbo-0125",
   "use_schema_aware_model": true,
   "cost_tier": "economy",
   "temperature": 0.0,

@@ -8,7 +8,6 @@ bp = Blueprint('api', __name__, url_prefix='/api')
 
 @bp.route('/ask', methods=['POST'])
 def ask_database():
-    print("ask_database")
     """Endpoint for natural language questions to database with AI insights.
     
     Example POST body:
@@ -31,23 +30,37 @@ def ask_database():
             current_app.logger.error(f"API connection test failed: {connection_msg}")
             return jsonify({'error': f"OpenAI API connection error: {connection_msg}"}), 503
             
-        # Generate SQL first to check validity
+        # Generate SQL and validate
         try:
             # Generate the SQL query
             sql = AIService.generate_sql_from_question(question, schema_folder)
+            current_app.logger.info(f"Generated SQL: {sql}")
             
             # Validate SQL query
             if not SQLService.validate_select(sql):
                 error_msg = f"Invalid SQL generated. The query does not appear to be a valid SELECT statement: {sql}"
                 current_app.logger.error(f"SQL validation failed: {sql}")
                 return jsonify({'error': error_msg}), 400
-                
-            # If SQL is valid, proceed with full insight generation
-            result = AIService.ask_database_with_insight(question, schema_folder)
+            
+            # Execute the SQL query
+            cols, rows = SQLService.run_sql(sql)
+            
+            # Generate insight from the results
+            insight = AIService.generate_insight_from_sql_results(sql, cols, rows)
+            
+            # Return the complete result
+            result = {
+                "sql": sql,
+                "columns": cols,
+                "rows": rows,
+                "insight": insight
+            }
+            
+            current_app.logger.info(f"Successfully processed question: {question}")
             return jsonify(result)
             
         except ValueError as e:
-            # This captures SQL validation errors from ask_database_with_insight
+            # This captures SQL validation errors
             error_msg = str(e)
             if "Invalid SQL generated" in error_msg:
                 # Extract just the SQL query from the error message if possible
@@ -146,49 +159,6 @@ def json_insights():
         current_app.logger.error(error_msg)
         return jsonify({'error': error_msg}), 500
 
-@bp.route('/analyze-structured', methods=['POST'])
-def analyze_structured():
-    """Endpoint for analyzing structured JSON data.
-    
-    Example POST body:
-    {
-        "data": { 
-            "accidentTypeDistribution": [...],
-            "vehicleTypeDistribution": [...],
-            ...
-        }
-    }
-    """
-    request_data = request.json
-    
-    if not request_data or 'data' not in request_data:
-        return jsonify({'error': 'Data is required'}), 400
-    
-    data = request_data['data']
-    
-    try:
-        # First test API connection
-        connection_ok, connection_msg = AIService.check_api_connection()
-        if not connection_ok:
-            current_app.logger.error(f"API connection test failed: {connection_msg}")
-            return jsonify({'error': f"OpenAI API connection error: {connection_msg}"}), 503
-            
-        # Generate analysis using the existing JSON insights method
-        analysis = AIService.generate_insights_from_json(data)
-        
-        # Check if the analysis is an error message
-        if analysis.startswith("Error generating insights:"):
-            return jsonify({'error': analysis}), 500
-            
-        return jsonify({
-            'analysis': analysis,
-            'method': 'standard'
-        })
-    except Exception as e:
-        error_msg = f"Error in analyze_structured: {str(e)}"
-        current_app.logger.error(error_msg)
-        return jsonify({'error': error_msg}), 500
-
 @bp.route('/system-check', methods=['GET'])
 def system_check():
     """Check system connections and configuration.
@@ -275,8 +245,8 @@ def system_check():
             
             # Check current model configuration
             current_model = current_app.config.get('SQL_MODEL')
-            use_schema_aware = current_app.config.get('USE_SCHEMA_AWARE_MODEL', False)
-            cost_tier = current_app.config.get('COST_TIER', 'economy')
+            use_schema_aware = current_app.config.get('USE_SCHEMA_AWARE_MODEL')
+            cost_tier = current_app.config.get('COST_TIER')
             
             results["models"]["configuration"] = {
                 "current_model": current_model,
@@ -309,7 +279,7 @@ def system_check():
         "DB_PROTOCOL", "DB_USER", "DB_PASSWORD", "DB_HOST", "DB_PORT", "DB_NAME",
         "OPENAI_API_KEY", "SCHEMA_FOLDER",
         "ECONOMY_MODEL", "STANDARD_MODEL", "PREMIUM_MODEL",
-        "USE_SCHEMA_AWARE_MODEL", "SQL_MODEL", "COST_TIER"
+        "USE_SCHEMA_AWARE_MODEL", "SQL_MODEL", "COST_TIER","PORT"
     ]
     all_present = True
     

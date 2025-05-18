@@ -87,7 +87,8 @@ def create_app(test_config=None):
         # Default cost tier to use
         COST_TIER=model_config['COST_TIER'],
         TEMPERATURE=model_config['TEMPERATURE'],
-        MAX_TOKENS=model_config['MAX_TOKENS']
+        MAX_TOKENS=model_config['MAX_TOKENS'],
+        PORT=os.environ.get('PORT', 5000),
     )
     
     # Log database connection info (without password) for debugging

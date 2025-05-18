@@ -5,7 +5,7 @@ from flask import Flask
 
 # Add the parent directory to the path so we can import the app package
 sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
-from app.services.ai_service import AIService
+from app.services.sql_service import SQLService
 
 def main():
     """Test the schema caching functionality"""
@@ -20,7 +20,7 @@ def main():
     print("\n=== First schema load (cold) ===")
     start_time = time.time()
     with app.app_context():
-        schema1 = AIService.get_schema(script_dir)
+        schema1 = SQLService.get_schema(script_dir)
     load_time1 = time.time() - start_time
     schema_size = len(schema1)
     
@@ -28,8 +28,8 @@ def main():
     print("\n=== Second schema load (cached) ===")
     start_time = time.time()
     with app.app_context():
-        schema2 = AIService.get_schema(script_dir)
-    load_time2 = time.time() - start_time
+        schema2 = SQLService.get_schema(script_dir)
+    load_time2 = max(time.time() - start_time, 0.0001)  # Ensure minimum time to prevent division by zero
     
     # Print results
     print(f"\nSchema size: {schema_size:,} characters")

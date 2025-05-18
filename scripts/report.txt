@@ -53,6 +53,9 @@ SET gis_coordinates = ST_SetSRID(ST_MakePoint(longitude, latitude), 4326);
 
 CREATE INDEX accidents_location_gist ON accident_reports USING GIST(gis_coordinates);
 
+INSERT INTO public.accident_reports
+(report_id, latitude, longitude, accident_location, gis_coordinates, user_id, num_affecties, age, created_at, status, image_uri, audio_uri, video_uri, description, officer_name, officer_designation, officer_contact_no, officer_notes, weather_condition, visibility, road_surface_condition, road_type, road_markings, preliminary_fault, gender, cause, vehicle_involved_id, patient_victim_id, accident_type_id, severity)
+VALUES(120438, 24.843600, 67.200400, 'Landhi', 'SRID=4326 POINT (67.2004 24.8436)'::public.geometry, 1, 2, 31, '2025-04-19 21:14:00.000', 'PENDING', NULL, NULL, NULL, 'Hit and run', 'Raza', 'SI', '3002386876', NULL, 1, 1, 2, 2, 2, 1, 1, 3, 1, 1, 1, 2);
 
 CREATE TABLE public.accident_report_images (
     image_id SERIAL PRIMARY KEY,

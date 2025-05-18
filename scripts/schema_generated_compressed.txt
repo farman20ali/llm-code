@@ -1,0 +1,126 @@
+Table: accident_types
+Columns: id(SERIAL), label(VARCHAR), description(VARCHAR)
+Values: Minor Collision, Major Collision, Vehicle Rollover, Hit and Run, Pedestrian Accident
+
+Table: vehicle_involved
+Columns: id(SERIAL), label(VARCHAR), description(TEXT)
+Values: Pedestrian, Bicycle, Motorbike, Truck, Taxi, Car, Water Tanker, Rickshaw/Chinqchi, Dumper, Trailer, Loading Pickup, Others
+
+Table: patient_victim
+Columns: id(SERIAL), label(VARCHAR), description(TEXT)
+Values: Rider, Pillion Rider, Car/Taxi Driver, Passenger, Pedestrian, Rickshaw/Chinqchi Driver, Rickshaw/Chinqchi Passenger, Others
+
+Table: apparent_cause
+Columns: id(SERIAL), cause(VARCHAR(50) NOT NULL), other_details(VARCHAR(255))
+Values: Over speeding, Brake Failure, Road Condition, Driver Negligence, Weather Conditions, Mechanical Failure, Other
+
+Table: weather_condition
+Columns: id(SERIAL), condition(VARCHAR(50) NOT NULL)
+Values: Clear, Rain, Fog, Dust, Windy
+
+Table: visibility
+Columns: id(SERIAL), level(VARCHAR(50) NOT NULL)
+Values: Good, Moderate, Poor
+
+Table: road_surface_condition
+Columns: id(SERIAL), condition(VARCHAR(50) NOT NULL)
+Values: Dry, Wet, Damaged, Under Construction
+
+Table: road_type
+Columns: id(SERIAL), type(VARCHAR(50) NOT NULL)
+Values: Highway, Urban Road, Intersection, Service Road, Bridge/Flyover
+
+Table: road_signage
+Columns: id(SERIAL), status(VARCHAR(50) NOT NULL)
+Values: Clear, Faded, Missing
+
+Table: case_referred_to
+Columns: id(SERIAL), unit(VARCHAR(50) NOT NULL)
+Values: Investigation Unit, Traffic Police, Legal Aid, Not Applicable
+
+Table: preliminary_fault_assessment
+Columns: id(SERIAL), fault(VARCHAR(50) NOT NULL)
+Values: Driver 1, Driver 2, Road Condition, Mechanical Failure, Shared Fault, Undetermined
+
+Table: gender_types
+Columns: id(SERIAL), label(VARCHAR), description(VARCHAR)
+Values: female, male, other
+
+Table: vehicle_condition
+Columns: id(SERIAL), label(VARCHAR), description(VARCHAR)
+Values: Minor, Major, Total Loss
+
+Table: fitness_certificate_status
+Columns: id(SERIAL), label(VARCHAR), description(VARCHAR)
+Values: Valid, Expired, Not Available
+
+Table: causalities_status
+Columns: id(SERIAL), label(VARCHAR), description(VARCHAR)
+Values: Causalities, Passengers, Injured
+
+Table: injury_severity
+Columns: id(SERIAL), label(VARCHAR), description(VARCHAR)
+Values: Minor, Major, Fatal
+
+Table: road_tax_status
+Columns: id(SERIAL), label(VARCHAR), description(VARCHAR)
+Values: Paid, Unpaid, Pending
+
+Table: insurance_status
+Columns: id(SERIAL), label(VARCHAR), description(VARCHAR)
+Values: Active, Expired, Pending Renewal
+
+Table: accident_reports
+Columns: report_id(serial4), latitude(numeric(9, 6) NULL), longitude(numeric(9, 6) NULL), accident_location(varchar(255) NULL), gis_coordinates(GEOMETRY(Point, 4326) NULL), user_id(int4), num_affecties(int4), age(int4), created_at(timestamp), status(varchar(50) DEFAULT), severity(int4), image_uri(text), audio_uri(text), video_uri(text), description(text), officer_name(VARCHAR(255)), officer_designation(VARCHAR(100)), officer_contact_no(VARCHAR(20)), officer_notes(TEXT), weather_condition(int4), visibility(int4), road_surface_condition(int4), road_type(int4), road_markings(int4), preliminary_fault(int4), gender(int4), cause(int4), vehicle_involved_id(int4), patient_victim_id(int4), accident_type_id(int4)
+Foreign Keys:
+accident_reports.accident_type_id -> accident_types.id
+accident_reports.patient_victim_id -> patient_victim.id
+accident_reports.user_id -> users.id
+accident_reports.vehicle_involved_id -> vehicle_involved.id
+accident_reports.weather_condition -> weather_condition.id
+accident_reports.visibility -> visibility.id
+accident_reports.road_surface_condition -> road_surface_condition.id
+accident_reports.road_type -> road_type.id
+accident_reports.road_markings -> road_signage.id
+accident_reports.preliminary_fault -> preliminary_fault_assessment.id
+accident_reports.gender -> gender_types.id
+accident_reports.cause -> apparent_cause.id
+
+Table: accident_report_images
+Columns: image_id(SERIAL), report_id(INT), image_uri(TEXT), uploaded_at(TIMESTAMP)
+Foreign Keys:
+accident_report_images.report_id -> accident_reports.report_id
+
+Table: vehicle_details
+Columns: id(SERIAL), report_id(INT), registration_no(VARCHAR(50)), type(int4), condition(VARCHAR(50)), fitness_certificate_status(VARCHAR(50)), road_tax_status(int4), insurance_status(int4)
+Foreign Keys:
+vehicle_details.type -> vehicle_involved.id
+vehicle_details.insurance_status -> insurance_status.id
+vehicle_details.road_tax_status -> road_tax_status.id
+
+Table: driver_details
+Columns: id(SERIAL), report_id(INT), name(VARCHAR(255)), cnic_no(VARCHAR(15)), license_no(VARCHAR(50)), contact_no(VARCHAR(20))
+
+Table: passenger_casualties
+Columns: id(SERIAL), report_id(INT), type(int4), name(VARCHAR(255)), hospital_name(VARCHAR(255)), injury_severity(int4)
+Foreign Keys:
+passenger_casualties.injury_severity -> injury_severity.id
+passenger_casualties.type -> causalities_status.id
+
+Table: evidence_collection
+Columns: id(SERIAL), report_id(INT), photos(BOOLEAN), videos(BOOLEAN), sketch(BOOLEAN)
+
+Table: witness_details
+Columns: id(SERIAL), report_id(INT), name(VARCHAR(255)), contact_no(VARCHAR(20)), address(TEXT)
+
+Table: follow_up_actions
+Columns: id(SERIAL), report_id(INT), fir_registered(BOOLEAN), fir_number(VARCHAR(50)), challan_issued(BOOLEAN), challan_number(VARCHAR(50)), case_referred_to(int4)
+Foreign Keys:
+follow_up_actions.case_referred_to -> case_referred_to.id
+
+Table: accident_vehicle_fitness
+Columns: fitness_id(SERIAL), report_id(INT), vehicle_no(VARCHAR(50) NOT NULL), fitness_certificate_valid(BOOLEAN), expiry_date(DATE), road_tax_status(int4), insurance_status(int4)
+Foreign Keys:
+accident_vehicle_fitness.report_id -> accident_reports.report_id
+accident_vehicle_fitness.road_tax_status -> road_tax_status.id
+accident_vehicle_fitness.insurance_status -> insurance_status.id
