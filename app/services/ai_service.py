@@ -11,24 +11,66 @@ import re
 # Add the parent directory of app to the path to make imports work
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 from app.services.sql_service import SQLService
-system_prompt_global = (
-    "You are a PostgreSQL SQL assistant for a traffic accident reporting system. Use schema you are trained on."
-    "The main table is 'accident_reports' which contains all accident data. "
-    "Only use supporting tables (LOVs) when specifically needed for lookups or relationships. "
-    "Generate specific and optimized SQL SELECT statements based on user questions. "
-    "Always include relevant WHERE clauses and aggregations as needed. "
-    "Never use SELECT * unless specifically requested. "
-    "Use correct table and column names from the schema. "
-    "Do not include explanations or comments. "
-    "Focus on the accident_reports table first, then add joins only if necessary."
-)
 
+# Define the function/tool specs
+tools = [
+    # {
+    #     "type": "function",
+    #     "function": {
+    #         "name": "get_all_table_names",
+    #         "description": "Returns a list of all available table names in the accident reporting system.",
+    #         "parameters": {
+    #             "type": "object",
+    #             "properties": {},
+    #             "required": []
+    #         }
+    #     }
+    # },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_table_schema",
+            "description": "Returns the schema of a given table, including columns and foreign key references.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table_name": {
+                        "type": "string",
+                        "description": "The name of the table to retrieve schema for."
+                    }
+                },
+                "required": ["table_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_multiple_table_schema",
+            "description": "Returns the schema for multiple tables at once, including their columns, foreign keys, and relationships.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table_names": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "List of table names to retrieve schemas for."
+                    }
+                },
+                "required": ["table_names"]
+            }
+        }
+    }
+]
 class AIService:
     """Service for interacting with OpenAI API."""
     
     # Class variable to cache the client
     _client = None
-    
+    _compressed_schema = None
+    _compressed_schema_hashmap = None
     @staticmethod
     def get_client():
         """Get OpenAI client with API key from environment."""
@@ -418,19 +460,33 @@ class AIService:
             current_app.logger.info(f"Using model: {model_name} (cost tier: {cost_tier}")
        
             
-            system_prompt = (
+            system_prompt_global = (
                 "You are a PostgreSQL SQL assistant for a traffic accident reporting system. "
-                "Generate specific and optimized SQL SELECT statements based on user questions. "
-                "ALWAYS use EXACT column names from the provided schema. "
-                "Always include relevant WHERE clauses and aggregations as needed. "
-                "Never use SELECT * unless specifically requested. "
-                "Use correct table and column names from the schema. "
-                "Do not include explanations or comments."
-                f"Here is the Schema : {schema}"
-            )
+                "The main table is 'accident_reports' which contains all accident data. "
+                "containing Columns: report_id(serial4), latitude(numeric(9, 6) NULL), longitude(numeric(9, 6) NULL), accident_location(varchar(255) NULL), gis_coordinates(GEOMETRY(Point, 4326) NULL), user_id(int4), num_affecties(int4), age(int4), created_at(timestamp), status(varchar(50) DEFAULT), severity(int4), image_uri(text), audio_uri(text), video_uri(text), description(text), officer_name(VARCHAR(255)), officer_designation(VARCHAR(100)), officer_contact_no(VARCHAR(20)), officer_notes(TEXT), weather_condition(int4), visibility(int4), road_surface_condition(int4), road_type(int4), road_markings(int4), preliminary_fault(int4), gender(int4), cause(int4), vehicle_involved_id(int4), patient_victim_id(int4), accident_type_id(int4)\n\n"
+                "Other tables are lookup tables that provide additional information through foreign key relationships: \n"
+                "- lov_table: accident_reports column -> lov_table column (descriptive column of lov_table)\n"
+                "- accident_types: accident_type_id -> accident_types.id (label)\n"
+                "- patient_victim: patient_victim_id -> patient_victim.id (label)\n"
+                "- vehicle_involved: vehicle_involved_id -> vehicle_involved.id (label)\n"
+                "- weather_condition: weather_condition -> weather_condition.id (condition)\n"
+                "- visibility: visibility -> visibility.id (level)\n"
+                "- road_surface_condition: road_surface_condition -> road_surface_condition.id (condition)\n"
+                "- road_type: road_type -> road_type.id (type)\n"
+                "- road_signage: road_markings -> road_signage.id (status)\n"
+                "- preliminary_fault_assessment: preliminary_fault -> preliminary_fault_assessment.id (fault)\n"
+                "- gender_types: gender -> gender_types.id (label)\n"
+                "- apparent_cause: cause -> apparent_cause.id (cause)\n\n"
+                "IMPORTANT: You already have all the schema information for accident_reports and lookup tables above. "
+                "DO NOT call get_table_schema or get_multiple_table_schema for schema information. "
+                "Only use these tools if you need sample data from lookup tables to understand their values. "
+                "Always return optimized SQL SELECT queries without comments or explanation. "
+                "Use proper WHERE, JOINs, and avoid SELECT * unless asked explicitly. "
+                "When joining tables, use the correct foreign key relationships listed above. "
+                )
 
             messages = [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": system_prompt_global},
                 {"role": "user", "content": batch_prompt}
             ]
             current_app.logger.info(f" messages : {messages}")
@@ -459,7 +515,7 @@ class AIService:
                     # Generate a more specific query based on the question
                     question = all_queries[len(extracted_queries)]
                     retry_messages = [
-                        {"role": "system", "content": system_prompt},
+                        {"role": "system", "content": system_prompt_global},
                         {"role": "user", "content": f"Generate a specific SQL query for: {question}"}
                     ]
                     retry_response = client.chat.completions.create(
@@ -478,7 +534,7 @@ class AIService:
                 while len(extracted_queries) < len(all_queries):
                     question = all_queries[len(extracted_queries)]
                     retry_messages = [
-                        {"role": "system", "content": system_prompt},
+                        {"role": "system", "content": system_prompt_global},
                         {"role": "user", "content": f"Generate a specific SQL query for: {question}"}
                     ]
                     retry_response = client.chat.completions.create(
@@ -496,7 +552,7 @@ class AIService:
                 if not SQLService._validate_sql_against_schema(sql, schema_folder):
                     current_app.logger.warning(f"Generated SQL for question {i+1} failed schema validation, regenerating...")
                     retry_messages = [
-                        {"role": "system", "content": system_prompt},
+                        {"role": "system", "content": system_prompt_global},
                         {"role": "user", "content": f"Generate a specific SQL query for: {query}"}
                     ]
                     retry_response = client.chat.completions.create(
@@ -510,7 +566,7 @@ class AIService:
                 # Create fine-tuning example
                 example = {
                     "messages": [
-                        {"role": "system", "content": system_prompt},
+                        {"role": "system", "content": system_prompt_global},
                         {"role": "user", "content": query},
                         {"role": "assistant", "content": sql}
                     ]
@@ -596,6 +652,45 @@ class AIService:
     def generate_sql_from_question(question: str, schema_folder: str) -> str:
         """Generate SQL query from natural language question."""
         client = AIService.get_client()
+        # Get all available tables first
+        available_tables = [
+            "accident_reports",  # Main table
+            "accident_types",    # accident_reports.accident_type_id -> accident_types.id
+            "patient_victim",    # accident_reports.patient_victim_id -> patient_victim.id
+            "vehicle_involved",  # accident_reports.vehicle_involved_id -> vehicle_involved.id
+            "weather_condition", # accident_reports.weather_condition -> weather_condition.id
+            "visibility",        # accident_reports.visibility -> visibility.id
+            "road_surface_condition", # accident_reports.road_surface_condition -> road_surface_condition.id
+            "road_type",        # accident_reports.road_type -> road_type.id
+            "road_signage",     # accident_reports.road_markings -> road_signage.id
+            "preliminary_fault_assessment", # accident_reports.preliminary_fault -> preliminary_fault_assessment.id
+            "gender_types",     # accident_reports.gender -> gender_types.id
+            "apparent_cause"    # accident_reports.cause -> apparent_cause.id
+        ]
+        system_prompt_global = (
+            "You are a PostgreSQL SQL assistant for a traffic accident reporting system. "
+            "The main table is 'accident_reports' which contains all accident data. "
+            "containing Columns: report_id(serial4), latitude(numeric(9, 6) NULL), longitude(numeric(9, 6) NULL), accident_location(varchar(255) NULL), gis_coordinates(GEOMETRY(Point, 4326) NULL), user_id(int4), num_affecties(int4), age(int4), created_at(timestamp), status(varchar(50) DEFAULT), severity(int4), image_uri(text), audio_uri(text), video_uri(text), description(text), officer_name(VARCHAR(255)), officer_designation(VARCHAR(100)), officer_contact_no(VARCHAR(20)), officer_notes(TEXT), weather_condition(int4), visibility(int4), road_surface_condition(int4), road_type(int4), road_markings(int4), preliminary_fault(int4), gender(int4), cause(int4), vehicle_involved_id(int4), patient_victim_id(int4), accident_type_id(int4)\n\n"
+            "Other tables are lookup tables that provide additional information through foreign key relationships: \n"
+            "- lov_table: accident_reports column -> lov_table column (descriptive column of lov_table)\n"
+            "- accident_types: accident_type_id -> accident_types.id (label)\n"
+            "- patient_victim: patient_victim_id -> patient_victim.id (label)\n"
+            "- vehicle_involved: vehicle_involved_id -> vehicle_involved.id (label)\n"
+            "- weather_condition: weather_condition -> weather_condition.id (condition)\n"
+            "- visibility: visibility -> visibility.id (level)\n"
+            "- road_surface_condition: road_surface_condition -> road_surface_condition.id (condition)\n"
+            "- road_type: road_type -> road_type.id (type)\n"
+            "- road_signage: road_markings -> road_signage.id (status)\n"
+            "- preliminary_fault_assessment: preliminary_fault -> preliminary_fault_assessment.id (fault)\n"
+            "- gender_types: gender -> gender_types.id (label)\n"
+            "- apparent_cause: cause -> apparent_cause.id (cause)\n\n"
+            "IMPORTANT: You have full schema above—do not fetch schema via tools. "
+            "Hardly use these tools if you need sample data from lookup tables to understand their values."
+            "Focus exclusively on **aggregate/statistical insights** (counts, averages, distributions, trends, top‑N, etc.). "
+            "Never return raw accident_reports rows. "
+            "Always produce optimized SQL SELECT statements that compute insights, without comments or explanation. "
+            "Use proper WHERE, JOINs, GROUP BY, ORDER BY, and avoid SELECT * unless explicitly asked for detail rows."
+            )
         
         # Get the cost tier from configuration
         cost_tier = current_app.config.get('COST_TIER', 'economy')
@@ -640,8 +735,80 @@ class AIService:
                     model=model_name,
                     messages=messages,
                     temperature=temperature,
-                    max_tokens=max_tokens
+                    max_tokens=max_tokens,
+                    tools=tools  # Add the tools to the API call
                 )
+                
+                # Handle tool calls if present
+                if response.choices[0].finish_reason == "tool_calls":
+                    tool_calls = response.choices[0].message.tool_calls
+                    print("call mades : ", tool_calls)
+                    
+                    # Add the assistant's message with tool calls to the conversation
+                    messages.append(response.choices[0].message)
+                    
+                   
+                    
+                    for call in tool_calls:
+                        function_name = call.function.name
+                        arguments = json.loads(call.function.arguments)
+
+                        # Call your actual tool backend here
+                        if function_name == "get_all_table_names":
+                            tool_result = {
+                                "tables": available_tables
+                            }
+
+                        elif function_name == "get_table_schema":
+                            table_name = arguments["table_name"]
+                            if table_name not in available_tables:
+                                tool_result = {
+                                    "error": f"Table '{table_name}' does not exist."
+                                }
+                            else:
+                                # Get schema from SQLService
+                                schema = SQLService.get_schema(schema_folder)
+                                AIService._compress_schema(schema)
+                                tool_result = AIService._compressed_schema_hashmap.get(table_name, {})
+
+                        elif function_name == "get_multiple_table_schema":
+                            table_names = arguments["table_names"]
+                            # Check if all requested tables exist
+                            invalid_tables = [t for t in table_names if t not in available_tables]
+                            if invalid_tables:
+                                tool_result = {
+                                    "error": f"Tables {', '.join(invalid_tables)} do not exist. "
+                                }
+                            else:
+                                # Get schema from SQLService
+                                schema = SQLService.get_schema(schema_folder)
+                                AIService._compress_schema(schema)
+                                # Get schemas for all requested tables
+                                tool_result = {
+                                    table_name: AIService._compressed_schema_hashmap.get(table_name, {})
+                                    for table_name in table_names
+                                }
+
+                        else:
+                            tool_result = {
+                                "error": f"Unknown function: {function_name}"
+                            }
+
+                        # Add tool response in the correct format
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": call.id,
+                            "name": function_name,
+                            "content": json.dumps(tool_result)
+                        })
+
+                    # Make another API call with the updated conversation
+                    response = client.chat.completions.create(
+                        model=model_name,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens
+                    )
                 
                 # Log token usage
                 current_app.logger.info(f"Token usage - Prompt: {response.usage.prompt_tokens}, "
@@ -670,7 +837,7 @@ class AIService:
                         current_app.logger.warning("SQL validation failed")
                         if attempt < max_retries - 1:
                             messages.append({"role": "assistant", "content": clean_sql})
-                            messages.append({"role": "user", "content": "The generated SQL doesn't match the schema. Please try again with a simpler query focusing on the accident_reports table."})
+                            messages.append({"role": "user", "content": "The generated SQL doesn't match the schema. Please use the schema tools to verify the correct column names and try again."})
                             continue
                         raise ValueError("Failed to generate valid SQL after validation")
                 except Exception as e:
@@ -689,13 +856,14 @@ class AIService:
 
     
     @staticmethod
-    def generate_insight_from_sql_results(sql: str, cols: list, rows: list) -> str:
+    def generate_insight_from_sql_results(sql: str, cols: list, rows: list, question: str = None) -> str:
         """Generate natural language insight from SQL query results.
         
         Args:
             sql: The SQL query
             cols: Column names
             rows: Result rows
+            question: Optional question that prompted the SQL query
             
         Returns:
             str: Natural language insight
@@ -714,9 +882,23 @@ class AIService:
             table_md = f"{header}\n{separator}\n" + "\n".join(" | ".join(map(str, r)) for r in rows[:max_rows])
             table_md += f"\n... and {len(rows) - max_rows} more rows"
         
+        # Create system message based on whether a question was provided
+        if question:
+            system_msg = (
+                "You are an analytics assistant. Focus on answering the specific question while providing insights. "
+                "Keep insights brief (max 3 sentences). Focus on the most significant finding that relates to the question. "
+                "Avoid phrases like 'the data shows' or 'according to the results'."
+            )
+        else:
+            system_msg = (
+                "You are an analytics assistant. Keep insights brief (max 3 sentences). "
+                "Focus on the most significant finding only. "
+                "Avoid phrases like 'the data shows' or 'according to the results'."
+            )
+        
         messages = [
-            {"role": "system", "content": "You are an analytics assistant. Keep insights brief (max 3 sentences). Focus on the most significant finding only. Avoid phrases like 'the data shows' or 'according to the results'."},
-            {"role": "user", "content": f"SQL Query:\n{sql}\n\nResult Table:\n{table_md}"}
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": f"SQL Query:\n{sql}\n\nResult Table:\n{table_md}" + (f"\n\nQuestion to answer:\n{question}" if question else "")}
         ]
         
         # Get model based on cost tier
@@ -854,6 +1036,9 @@ class AIService:
         Returns:
             A compressed schema string with tables, columns, types, foreign keys, and sample data.
         """
+        if AIService._compressed_schema is not None:
+            return AIService._compressed_schema
+
         text = schema.replace("\r\n", "\n")
 
         # 1. Extract CREATE TABLE definitions
@@ -883,15 +1068,19 @@ class AIService:
                     inserts.setdefault(tbl, []).append({cols[0]: vals[0]})
 
         sections = []
+        AIService._compressed_schema_hashmap = {}
+        
         # 3. Build compressed schema per table
         for tbl_full, cols_block in create_blocks:
             tbl = tbl_full.split('.')[-1]
-            cols = []
-            fks = []
+            columns = {}
+            foreign_keys = {}
+            
             for line in cols_block.split('\n'):
                 line = line.strip().rstrip(',')
                 if not line:
                     continue
+                    
                 # Foreign key detection
                 fk_match = re.search(
                     r"FOREIGN\s+KEY\s*\((\w+)\).*?REFERENCES\s+([\w\.]+)\s*\((\w+)\)",
@@ -900,13 +1089,14 @@ class AIService:
                 if fk_match:
                     src, ref_full, ref_col = fk_match.groups()
                     ref_tbl = ref_full.split('.')[-1]
-                    fks.append(f"{tbl}.{src} -> {ref_tbl}.{ref_col}")
+                    foreign_keys[src] = f"{ref_tbl}.{ref_col}"
                     continue
+                    
                 # Skip constraint lines
                 if re.match(r"^(PRIMARY|UNIQUE|CONSTRAINT|CHECK|FOREIGN)\b", line, flags=re.IGNORECASE):
                     continue
-                # Column definition: capture everything before first comma or end
-                # column_patterns=r"^(\w+)\s+([^,]+)"
+                    
+                # Column definition
                 column_pattern = re.compile(
                     r"^\s*(\w+)\s+([a-zA-Z0-9_]+\s*(?:\([^\)]*\))?(?:\s+[A-Z]+)*(?:\s+DEFAULT\s+[^,]+)?(?:\s+NULL|\s+NOT NULL)?)\s*,?",
                     re.IGNORECASE | re.MULTILINE
@@ -915,31 +1105,40 @@ class AIService:
                 m_col = column_pattern.match(line)
                 if m_col:
                     name, typ = m_col.groups()
-                    cols.append(f"{name}({typ.strip()})")
+                    columns[name] = typ.strip()
 
-            section = [f"Table: {tbl}", f"Columns: {', '.join(cols)}"]
-            # Sample data handling
+            # Create table schema in required format
+            table_schema = {
+                "columns": columns,
+                "foreign_keys": foreign_keys
+            }
+            
+            # Add sample data if available
             rows = inserts.get(tbl, [])
             if rows:
-                # If only one non-id column, condense values
-                keys = list(rows[0].keys())
-                non_id = [k for k in keys if k.lower() not in ('id',)]
-                if len(non_id) == 1:
-                    vals = [r[non_id[0]] for r in rows]
-                    unique_vals = list(dict.fromkeys(vals))
-                    section.append(f"Values: {', '.join(unique_vals)}")
-                else:
-                    section.append("Sample Data:")
-                    for r in rows:
-                        section.append("  - " + ", ".join(f"{k}={v}" for k, v in r.items()))
-            # Foreign keys
-            if fks:
+                table_schema["sample_data"] = rows[:5]  # Limit to 5 sample rows
+            
+            # Store in hashmap
+            AIService._compressed_schema_hashmap[tbl] = table_schema
+            
+            # Create text representation for sections
+            section = [f"Table: {tbl}"]
+            section.append("Columns:")
+            for col, typ in columns.items():
+                section.append(f"  {col}: {typ}")
+            if foreign_keys:
                 section.append("Foreign Keys:")
-                section.extend(fks)
-
+                for src, ref in foreign_keys.items():
+                    section.append(f"  {src} -> {ref}")
+            if rows:
+                section.append("Sample Data:")
+                for r in rows[:5]:  # Limit to 5 sample rows
+                    section.append("  - " + ", ".join(f"{k}={v}" for k, v in r.items()))
+            
             sections.append("\n".join(section))
 
-        return "\n\n".join(sections)
+        AIService._compressed_schema = "\n\n".join(sections)
+        return AIService._compressed_schema
 
 
 

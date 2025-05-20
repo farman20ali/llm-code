@@ -5,6 +5,7 @@ import json
 import logging
 from app.routes.sql_routes import sql_bp
 from app.routes.query_routes import query_bp
+# from app.routes.prediction_routes import prediction_bp
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -97,7 +98,7 @@ def create_app(test_config=None):
     if app.debug:
         masked_url = f"{db_protocol}{db_user}:****@{db_host}:{db_port}/{db_name}"
         print(f"Database URL: {masked_url}")
-    
+        
     if test_config is None:
         # Load the instance config, if it exists, when not testing
         app.config.from_pyfile('config.py', silent=True)
@@ -117,6 +118,7 @@ def create_app(test_config=None):
     app.register_blueprint(main.bp)
     app.register_blueprint(api.bp)
     app.register_blueprint(sql_bp, url_prefix='/api/sql')
-    app.register_blueprint(query_bp,url_prefix='/query')
+    app.register_blueprint(query_bp, url_prefix='/query')
+    # app.register_blueprint(prediction_bp, url_prefix='/api/prediction')
     
     return app 

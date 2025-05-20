@@ -5,6 +5,22 @@ from flask import current_app
 from sqlalchemy import types
 from sqlalchemy.dialects.postgresql import base as postgresql_base
 
+
+available_tables = [
+            "accident_reports",  # Main table
+            "accident_types",    # accident_reports.accident_type_id -> accident_types.id
+            "patient_victim",    # accident_reports.patient_victim_id -> patient_victim.id
+            "vehicle_involved",  # accident_reports.vehicle_involved_id -> vehicle_involved.id
+            "weather_condition", # accident_reports.weather_condition -> weather_condition.id
+            "visibility",        # accident_reports.visibility -> visibility.id
+            "road_surface_condition", # accident_reports.road_surface_condition -> road_surface_condition.id
+            "road_type",        # accident_reports.road_type -> road_type.id
+            "road_signage",     # accident_reports.road_markings -> road_signage.id
+            "preliminary_fault_assessment", # accident_reports.preliminary_fault -> preliminary_fault_assessment.id
+            "gender_types",     # accident_reports.gender -> gender_types.id
+            "apparent_cause"    # accident_reports.cause -> apparent_cause.id
+        ]
+
 class GeometryType(types.UserDefinedType):
     """Custom type for PostGIS geometry columns"""
     def __init__(self, *args, **kwargs):
@@ -42,7 +58,7 @@ class LangChainService:
 
             cls._db = SQLDatabase.from_uri(
                 db_uri,
-                include_tables=['accident_reports','vehicle_involved','accident_types'],
+                include_tables=available_tables,
                 sample_rows_in_table_info=1,
                 engine_args={
                     'connect_args': {'options': '-csearch_path=public'}

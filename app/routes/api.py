@@ -87,7 +87,8 @@ def sql_insights():
     
     Example POST body:
     {
-        "sql": "SELECT * FROM accidents WHERE date > '2023-01-01' LIMIT 10"
+        "sql": "SELECT * FROM accidents WHERE date > '2023-01-01' LIMIT 10",
+        "question": "What are the trends in accidents over time?"  # Optional
     }
     """
     data = request.json
@@ -96,6 +97,7 @@ def sql_insights():
         return jsonify({'error': 'SQL query is required'}), 400
     
     sql = data['sql']
+    question = data.get('question')  # Optional question parameter
     
     # Validate SQL query
     if not SQLService.validate_select(sql):
@@ -105,14 +107,15 @@ def sql_insights():
         # Execute SQL
         cols, rows = SQLService.run_sql(sql)
         
-        # Generate insights
-        insight = AIService.generate_insight_from_sql_results(sql, cols, rows)
+        # Generate insights with optional question context
+        insight = AIService.generate_insight_from_sql_results(sql, cols, rows, question)
         
         return jsonify({
             'sql': sql,
             'columns': cols,
             'rows': rows,
-            'insight': insight
+            'insight': insight,
+            'question': question  # Include the question in response if provided
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500

@@ -9,43 +9,40 @@ class SQLService:
     _schema_cache = {}
     """Service for SQL validation and execution."""
     
+    import re
+from flask import current_app
+
+class SQLService:
+
     @staticmethod
     def validate_select(sql: str) -> bool:
-        """Validate that SQL is a safe SELECT statement only.
-        
-        Args:
-            sql: The SQL query to validate
-            
-        Returns:
-            bool: True if SQL is valid, False otherwise
-        """
-        # Check for markdown formatting or code blocks
-        if '```' in sql:
-            current_app.logger.warning(f"SQL contains markdown code blocks: {sql}")
-            # Try to extract SQL from markdown
-            lines = sql.split('\n')
-            filtered_lines = [line for line in lines if not line.strip().startswith('```')]
-            sql = '\n'.join(filtered_lines)
-            
-        sql = sql.strip().rstrip(';')
-        
-        # Check for multiple statements
+        """Validate that SQL is a safe single SELECT statement."""
+        # 1) Remove markdown fences completely
+        sql = re.sub(r"```.*?```", "", sql, flags=re.DOTALL)
+
+        # 2) Trim whitespace
+        sql = sql.strip()
+
+        # 3) Remove exactly ONE trailing semicolon (and any following spaces/newlines)
+        sql = re.sub(r";+\s*$", "", sql)
+
+        # 4) Reject if any semicolon remains (multiple statements)
         if ";" in sql:
             current_app.logger.warning(f"SQL contains multiple statements: {sql}")
             return False
-        
-        upper = sql.upper()
-        # Check if it's a SELECT statement
-        if not upper.startswith("SELECT"):
+
+        # 5) Must start with SELECT as a whole word (case‑insensitive)
+        if not re.match(r"(?i)^\s*SELECT\b", sql):
             current_app.logger.warning(f"SQL does not start with SELECT: {sql}")
             return False
-            
-        # Check for forbidden keywords
-        for forbidden in ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE"]:
-            if forbidden in upper:
-                current_app.logger.warning(f"SQL contains forbidden keyword '{forbidden}': {sql}")
+
+        # 6) Forbid dangerous keywords as whole words
+        forbidden = ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE"]
+        for word in forbidden:
+            if re.search(rf"(?i)\b{word}\b", sql):
+                current_app.logger.warning(f"SQL contains forbidden keyword '{word}': {sql}")
                 return False
-                
+
         return True
     
     @staticmethod
@@ -302,3 +299,38 @@ class SQLService:
         except Exception as e:
             current_app.logger.error(f"Error validating SQL against schema: {str(e)}")
             return False
+
+    @staticmethod
+    def get_connection():
+        """Get a database connection using configuration from current_app.
+        
+        Returns:
+            psycopg2.connection: Database connection object
+        """
+        try:
+            # Get database connection parameters
+            db_protocol = current_app.config.get('DB_PROTOCOL', 'postgresql://')
+            db_user = current_app.config.get('DB_USER', 'postgres')
+            db_password = current_app.config.get('DB_PASSWORD', 'postgres')
+            db_host = current_app.config.get('DB_HOST', 'localhost')
+            db_port = current_app.config.get('DB_PORT', '5432')
+            db_name = current_app.config.get('DB_NAME', 'insights')
+            
+            # Create connection
+            conn = psycopg2.connect(
+                user=db_user,
+                password=db_password,
+                host=db_host,
+                port=db_port,
+                dbname=db_name,
+                connect_timeout=10
+            )
+            
+            # Set autocommit to True for read-only operations
+            conn.autocommit = True
+            
+            return conn
+            
+        except Exception as e:
+            current_app.logger.error(f"Database connection error: {str(e)}")
+            raise
