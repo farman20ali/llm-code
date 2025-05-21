@@ -7,7 +7,7 @@ import json
 import random
 import time
 import re
-
+from dateutil.parser import parse as parse_date
 # Add the parent directory of app to the path to make imports work
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 from app.services.sql_service import SQLService
@@ -71,6 +71,7 @@ class AIService:
     _client = None
     _compressed_schema = None
     _compressed_schema_hashmap = None
+
     @staticmethod
     def get_client():
         """Get OpenAI client with API key from environment."""
@@ -885,13 +886,13 @@ class AIService:
         # Create system message based on whether a question was provided
         if question:
             system_msg = (
-                "You are an analytics assistant. Focus on answering the specific question while providing insights. "
+                "You are an analytics assistant with access to the results of a SQL query. Focus on answering the specific question while providing concise, insight-focused summary."
                 "Keep insights brief (max 3 sentences). Focus on the most significant finding that relates to the question. "
                 "Avoid phrases like 'the data shows' or 'according to the results'."
             )
         else:
             system_msg = (
-                "You are an analytics assistant. Keep insights brief (max 3 sentences). "
+                "You are an analytics assistant with access to the results of a SQL query. Use the SQL and the result table to generate a concise, insight-focused summary. Keep insights brief (max 3 sentences). "
                 "Focus on the most significant finding only. "
                 "Avoid phrases like 'the data shows' or 'according to the results'."
             )
@@ -945,58 +946,21 @@ class AIService:
 
         summary = []
 
-        # Generic handling for top-level fields
-        for key, value in obj.items():
-            # Lists of dicts: inspect numeric and categorical fields
-            if isinstance(value, list) and value and isinstance(value[0], dict):
-                # Count and key detection
-                summary.append(f"{key}: {len(value)} records")
-
-                # Collate stats per field
-                numeric, categorical = {}, {}
-                for item in value:
-                    for field, val in item.items():
-                        if val is None:
-                            continue
-                        if isinstance(val, (int, float)):
-                            numeric.setdefault(field, []).append(val)
-                        else:
-                            categorical.setdefault(field, {}).setdefault(val, 0)
-                            categorical[field][val] += 1
-                # Summarize numeric
-                for f, vals in numeric.items():
-                    summary.append(f"{f}: avg={sum(vals)/len(vals):.2f}, min={min(vals)}, max={max(vals)}")
-                # Summarize categorical
-                for f, counts in categorical.items():
-                    top = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:3]
-                    top_str = ", ".join(f"{v}({c})" for v, c in top)
-                    summary.append(f"{f} top: {top_str}")
-
-            # Single dict: count keys and note numeric values
-            elif isinstance(value, dict):
-                summary.append(f"{key}: contains {len(value)} fields")
-                for f, val in value.items():
-                    if isinstance(val, (int, float)):
-                        summary.append(f"{f}: {val}")
-                    elif isinstance(val, list):
-                        summary.append(f"{f}: {len(val)} items")
-
-            # List of scalars
-            elif isinstance(value, list):
-                summary.append(f"{key}: list of {len(value)} values")
-
-            # Scalar
-            else:
-                if isinstance(value, (int, float)):
-                    summary.append(f"{key}: {value}")
-                elif isinstance(value, str):
-                    summary.append(f"{key}: '{value}'")
+        # Generate summary lines
+        summary_lines = AIService.smart_summarize(obj)
+        summary_text = "\n".join(summary_lines)
 
         # Build prompt
         system_msg = (
-            "You are a data analyst. Provide 1-2 key quantitative findings (<=30 words each) and 1 actionable recommendation (<=20 words)."
+            "You are a data analyst. Based on the accident summary data, provide:\n"
+            "1. One or two clear, quantitative insights (≤30 words each), including exact figures or percentages.\n"
+            "   - Focus on accident frequency, types, severity, and timing.\n"
+            "   - Include only significant or unusual trends, spikes, or drops.\n"
+            "2. Provide one actionable recommendation (≤20 words) ONLY IF a clear, meaningful intervention is supported by the data.\n"
+            "   - If no unique or actionable insight is found, DO NOT provide a recommendation.\n"
+            "Use precise, concise language suitable for decision-makers. Avoid generic statements."
         )
-        user_msg = "Data metrics:\n" + "\n".join(summary)
+        user_msg = "Data metrics:\n" + summary_text
         messages = [
             {"role": "system", "content": system_msg},
             {"role": "user", "content": user_msg}
@@ -1201,3 +1165,132 @@ class AIService:
         except Exception as e:
             current_app.logger.error(f"Error deleting model {model_id}: {str(e)}")
             return False
+        
+ 
+    @staticmethod
+    def format_summary_section(key: str, records: list) -> list:
+        summary = []
+
+        # Title formatting
+        title = key.replace('_', ' ').title().replace(' ', '')
+        summary.append(f"== {title} ==")
+
+        # Format hint
+        summary.append("(label - count (avg severity))")
+        summary.append(f"- Total categories: {len(records)}")
+
+        if all(isinstance(r, dict) for r in records):
+            # List each label with count and avg severity
+            for r in records:
+                label = r.get('label', 'Unknown')
+                count = r.get('count', 0)
+                avg_severity = r.get('avgSeverity')
+                if avg_severity is not None:
+                    summary.append(f"{label} - {count:,} ({avg_severity:.2f})")
+                else:
+                    summary.append(f"{label} - {count:,}")
+
+            # Overall severity range & average
+            severities = [r['avgSeverity'] for r in records if r.get('avgSeverity') is not None]
+            if severities:
+                summary.append(f"- Severity range: {min(severities):.2f} to {max(severities):.2f}")
+                summary.append(f"- Overall average severity: {sum(severities)/len(severities):.2f}")
+
+        return summary
+
+    
+    from dateutil.parser import parse as parse_date
+
+    @staticmethod
+    def detect_trend_frequency(dates: list) -> str:
+        if len(dates) < 2:
+            return "Unknown"
+        try:
+            date_objs = [parse_date(d) for d in dates]
+            delta = (date_objs[1] - date_objs[0]).days
+            if 5 <= delta <= 10:
+                return "Weekly"
+            elif 25 <= delta <= 35:
+                return "Monthly"
+            elif 350 <= delta <= 370:
+                return "Yearly"
+            return "Custom"
+        except Exception:
+            return "Unknown"
+
+    @staticmethod
+    def summarize_trends(records: list) -> list:
+        summary = []
+        if not records:
+            return summary
+
+        # Ensure records are sorted by timePeriod
+        records = sorted(records, key=lambda r: r.get("timePeriod", ""))
+
+        # Extract time periods and frequency
+        time_periods = [r["timePeriod"] for r in records if "timePeriod" in r]
+        frequency = AIService.detect_trend_frequency(time_periods)
+        summary.append(f"== {frequency.title()} Trends ==")
+
+        # Time range display
+        try:
+            start = parse_date(time_periods[0]).strftime("%b %Y")
+            end = parse_date(time_periods[-1]).strftime("%b %Y")
+        except:
+            start = time_periods[0]
+            end = time_periods[-1]
+        summary.append(f"- Time range: {start} to {end}")
+
+        # Extract incident and fatality counts
+        counts = [r.get("totalCount", 0) for r in records]
+        fatal_counts = sum(r.get("fatalCount", 0) for r in records)
+
+        if counts:
+            summary.append(f"- Incidents: {counts[0]:,} → {counts[-1]:,}")
+
+            # Max and min incidents
+            max_idx, max_val = max(enumerate(counts), key=lambda x: x[1])
+            min_idx, min_val = min(enumerate(counts), key=lambda x: x[1])
+            try:
+                max_date = parse_date(time_periods[max_idx]).strftime('%b %Y')
+                min_date = parse_date(time_periods[min_idx]).strftime('%b %Y')
+            except:
+                max_date = time_periods[max_idx]
+                min_date = time_periods[min_idx]
+            summary.append(f"- Max incidents: {max_val:,} in {max_date}")
+            summary.append(f"- Min incidents: {min_val:,} in {min_date}")
+
+            # Month-wise incident breakdown
+            summary.append("- Incidents by month:")
+            for rec in records:
+                try:
+                    month = parse_date(rec["timePeriod"]).strftime("%b %Y")
+                except:
+                    month = rec["timePeriod"]
+                summary.append(f"  {month}: {rec.get('totalCount', 0):,}")
+
+        if fatal_counts > 0:
+            summary.append(f"- Fatalities: {fatal_counts:,}")
+
+        return summary
+    
+    @staticmethod
+    def smart_summarize(obj: dict) -> list:
+        summary = []
+        for key, value in obj.items():
+            if isinstance(value, list) and value and isinstance(value[0], dict):
+                if key == "trends":
+                    summary.extend(AIService.summarize_trends(value))
+                else:
+                    summary.extend(AIService.format_summary_section(key, value))
+            elif isinstance(value, list):
+                summary.append(f"{key}: list of {len(value)} values")
+            elif isinstance(value, dict):
+                summary.append(f"{key}: dict with {len(value)} fields")
+            else:
+                if isinstance(value, (int, float)):
+                    summary.append(f"{key}: {value}")
+                elif isinstance(value, str):
+                    summary.append(f"{key}: '{value}'")
+        print(summary)
+        return summary
