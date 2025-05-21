@@ -5,15 +5,11 @@ import psycopg2
 from flask import current_app
 
 class SQLService:
-        # Class variable to cache the schema
-    _schema_cache = {}
     """Service for SQL validation and execution."""
     
-    import re
-from flask import current_app
-
-class SQLService:
-
+    # Class variable to cache the schema
+    _schema_cache = {}
+    
     @staticmethod
     def validate_select(sql: str) -> bool:
         """Validate that SQL is a safe single SELECT statement."""
