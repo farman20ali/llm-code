@@ -79,14 +79,12 @@ def batch_query():
         ]
     }
     """
-    print("batch_query")
-    data = request.json
-    
+    data = request.get_json()
     if not data:
         return jsonify({'error': 'Request body is required'}), 400
     
     # Handle both query_list and queryMap formats
-    if 'query_list' in data and data['query_list'] and (data['query_list'])>0:
+    if 'query_list' in data and data['query_list'] and len(data['query_list']) > 0:
         query_list = data['query_list']
         if not isinstance(query_list, list):
             return jsonify({'error': 'query_list must be an array'}), 400
@@ -99,14 +97,15 @@ def batch_query():
     else:
         return jsonify({'error': 'Either query_list or queryMap is required'}), 400
     
-    print("query_map: ", len(query_map))
+    current_app.logger.info(f"Processing batch query with {len(query_map)} queries")
     
     successful_queries = []
     unsuccessful_queries = []
     
-    # Get a single database connection
-    conn = SQLService.get_connection()
+    # Get a connection from the pool
+    conn = None
     try:
+        conn = SQLService.get_connection()
         with conn.cursor() as cur:
             for key, query in query_map.items():
                 try:
@@ -137,9 +136,13 @@ def batch_query():
                         "query": query,
                         "error": str(e)
                     })
+    except Exception as e:
+        current_app.logger.error(f"Error in batch query execution: {str(e)}")
+        return jsonify({'error': f'Database error: {str(e)}'}), 500
     finally:
-        # Always close the connection
-        conn.close()
+        # Release connection back to pool
+        if conn is not None:
+            SQLService.release_connection(conn)
     
     return jsonify({
         "successfulQueries": successful_queries,

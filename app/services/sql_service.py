@@ -3,12 +3,80 @@ import re
 import glob
 import psycopg2
 from flask import current_app
+from psycopg2 import pool
 
 class SQLService:
     """Service for SQL validation and execution."""
     
     # Class variable to cache the schema
     _schema_cache = {}
+    
+    # Connection pool
+    _connection_pool = None
+    
+    @classmethod
+    def get_connection_pool(cls):
+        """Get or create the connection pool."""
+        if cls._connection_pool is None:
+            try:
+                # Get database connection parameters
+                db_user = current_app.config.get('DB_USER', 'postgres')
+                db_password = current_app.config.get('DB_PASSWORD', 'postgres')
+                db_host = current_app.config.get('DB_HOST', 'localhost')
+                db_port = current_app.config.get('DB_PORT', '5432')
+                db_name = current_app.config.get('DB_NAME', 'insights')
+                
+                # Create connection pool
+                cls._connection_pool = pool.ThreadedConnectionPool(
+                    minconn=1,  # Minimum number of connections
+                    maxconn=10,  # Maximum number of connections
+                    user=db_user,
+                    password=db_password,
+                    host=db_host,
+                    port=db_port,
+                    dbname=db_name,
+                    connect_timeout=10
+                )
+                current_app.logger.info("Database connection pool created successfully")
+            except Exception as e:
+                current_app.logger.error(f"Error creating connection pool: {str(e)}")
+                raise
+        return cls._connection_pool
+    
+    @classmethod
+    def get_connection(cls):
+        """Get a connection from the pool."""
+        try:
+            pool = cls.get_connection_pool()
+            conn = pool.getconn()
+            conn.autocommit = True  # Set autocommit for read-only operations
+            return conn
+        except Exception as e:
+            current_app.logger.error(f"Error getting connection from pool: {str(e)}")
+            raise
+    
+    @classmethod
+    def release_connection(cls, conn):
+        """Release a connection back to the pool."""
+        try:
+            if conn is not None:
+                pool = cls.get_connection_pool()
+                pool.putconn(conn)
+        except Exception as e:
+            current_app.logger.error(f"Error releasing connection to pool: {str(e)}")
+            raise
+    
+    @classmethod
+    def cleanup(cls):
+        """Clean up the connection pool when the application shuts down."""
+        if cls._connection_pool is not None:
+            try:
+                cls._connection_pool.closeall()
+                current_app.logger.info("Database connection pool closed successfully")
+            except Exception as e:
+                current_app.logger.error(f"Error closing connection pool: {str(e)}")
+            finally:
+                cls._connection_pool = None
     
     @staticmethod
     def validate_select(sql: str) -> bool:
@@ -43,7 +111,7 @@ class SQLService:
     
     @staticmethod
     def run_sql(query: str):
-        """Execute SQL query against PostgreSQL.
+        """Execute SQL query against PostgreSQL using connection pool.
         
         Args:
             query: The SQL query to execute
@@ -53,31 +121,9 @@ class SQLService:
         """
         conn = None
         try:
-            # Get individual database connection parameters from config
-            db_protocol = current_app.config.get('DB_PROTOCOL', 'postgresql://')
-            db_user = current_app.config.get('DB_USER', 'postgres')
-            db_password = current_app.config.get('DB_PASSWORD', 'postgres')
-            db_host = current_app.config.get('DB_HOST', 'localhost')
-            db_port = current_app.config.get('DB_PORT', '5432')
-            db_name = current_app.config.get('DB_NAME', 'irs')
+            # Get connection from pool
+            conn = SQLService.get_connection()
             
-            # Build connection string from individual components
-            # db_url = f"{db_protocol}{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
-            
-            # Log connection attempt with masked password
-            masked_url = f"postgresql://{db_user}:****@{db_host}:{db_port}/{db_name}"
-            current_app.logger.info(f"Connecting to database: {masked_url}")
-
-            # ✅ Best practice: use keyword arguments
-            conn = psycopg2.connect(
-                user=db_user,
-                password=db_password,
-                host=db_host,
-                port=db_port,
-                dbname=db_name,
-                connect_timeout=10
-            )
-
             with conn.cursor() as cur:
                 cur.execute(query)
                 cols = [desc[0] for desc in cur.description]
@@ -86,12 +132,11 @@ class SQLService:
         except psycopg2.Error as e:
             error_msg = f"Database error executing query: {query}\nError: {str(e)}"
             current_app.logger.error(error_msg)
-            
-            # Provide more helpful error message
             raise RuntimeError(f"Database error: {str(e)}")
         finally:
+            # Release connection back to pool
             if conn is not None:
-                conn.close()
+                SQLService.release_connection(conn)
     
 
     @staticmethod
@@ -295,38 +340,3 @@ class SQLService:
         except Exception as e:
             current_app.logger.error(f"Error validating SQL against schema: {str(e)}")
             return False
-
-    @staticmethod
-    def get_connection():
-        """Get a database connection using configuration from current_app.
-        
-        Returns:
-            psycopg2.connection: Database connection object
-        """
-        try:
-            # Get database connection parameters
-            db_protocol = current_app.config.get('DB_PROTOCOL', 'postgresql://')
-            db_user = current_app.config.get('DB_USER', 'postgres')
-            db_password = current_app.config.get('DB_PASSWORD', 'postgres')
-            db_host = current_app.config.get('DB_HOST', 'localhost')
-            db_port = current_app.config.get('DB_PORT', '5432')
-            db_name = current_app.config.get('DB_NAME', 'insights')
-            
-            # Create connection
-            conn = psycopg2.connect(
-                user=db_user,
-                password=db_password,
-                host=db_host,
-                port=db_port,
-                dbname=db_name,
-                connect_timeout=10
-            )
-            
-            # Set autocommit to True for read-only operations
-            conn.autocommit = True
-            
-            return conn
-            
-        except Exception as e:
-            current_app.logger.error(f"Database connection error: {str(e)}")
-            raise
