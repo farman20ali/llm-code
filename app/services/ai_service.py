@@ -686,8 +686,8 @@ class AIService:
             "- preliminary_fault_assessment: preliminary_fault -> preliminary_fault_assessment.id (fault)\n"
             "- gender_types: gender -> gender_types.id (label)\n"
             "- apparent_cause: cause -> apparent_cause.id (cause)\n\n"
-            "IMPORTANT: You have full schema above—do not fetch schema via tools. "
-            "Hardly use these tools if you need sample data from lookup tables to understand their values."
+            "Use the lookup tables whenever you need descriptive values for aggregations or filters. "
+            "Do not fetch schema or sample data from the database using tools. The schema is already provided above. "
             "Focus exclusively on **aggregate/statistical insights** (counts, averages, distributions, trends, top‑N, etc.). "
             "Never return raw accident_reports rows. "
             "Always produce optimized SQL SELECT statements that compute insights, without comments or explanation. "
@@ -1301,3 +1301,152 @@ class AIService:
                     summary.append(f"{key}: '{value}'")
         print(summary)
         return summary
+
+    @staticmethod
+    def _normalize_sql(sql: str) -> str:
+        """Normalize SQL for comparison by removing semicolons, extra spaces, and standardizing formatting.
+        
+        Args:
+            sql: SQL query string
+            
+        Returns:
+            str: Normalized SQL query
+        """
+        # Remove semicolons
+        sql = sql.replace(';', '')
+        
+        # Remove extra whitespace and newlines
+        sql = ' '.join(sql.split())
+        
+        # Convert to lowercase
+        sql = sql.lower()
+        
+        # Remove extra spaces around parentheses
+        sql = sql.replace('( ', '(').replace(' )', ')')
+        
+        # Remove extra spaces around commas
+        sql = sql.replace(' ,', ',').replace(', ', ',')
+        
+        # Remove extra spaces around operators
+        for op in ['=', '>', '<', '>=', '<=', '<>', '!=', '+', '-', '*', '/']:
+            sql = sql.replace(f' {op} ', op).replace(f' {op}', op).replace(f'{op} ', op)
+        
+        return sql.strip()
+
+    @staticmethod
+    def compare_sql_queries_semantically(query1: str, query2: str) -> bool:
+        """Compare two SQL queries semantically using the AI model.
+        
+        Args:
+            query1: First SQL query
+            query2: Second SQL query
+            
+        Returns:
+            bool: True if queries are semantically equivalent
+        """
+        try:
+                
+            client = AIService.get_client()
+            
+            system_prompt = """
+            You are a SQL expert. Compare two SQL queries and determine if they are semantically equivalent. 
+            Two queries are semantically equivalent if they would produce the same results, even if written differently. 
+            Consider:
+            1. Different column orders
+            2. Different table aliases
+            3. Different JOIN syntax
+            4. Different WHERE clause ordering
+            5. Different GROUP BY/ORDER BY ordering
+            6. Different subquery structures
+            7. Different whitespace or formatting
+            8. Different semicolon usage
+
+            Ignore ORDER BY clauses **if** they do not affect aggregation or pagination results.
+            Ignore aliases if used consistently and don’t change semantics.
+
+            Respond with ONLY 'true' or 'false'.
+            """
+            
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Query 1: {query1}\nQuery 2: {query2}"}
+            ]
+            
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=messages,
+                temperature=0,
+                max_tokens=10
+            )
+            
+            result = response.choices[0].message.content.strip().lower()
+            return result == 'true'
+            
+        except Exception as e:
+            current_app.logger.error(f"Error in semantic SQL comparison: {str(e)}")
+            return False
+
+    @staticmethod
+    def generate_and_compare_sql_batch(questions_data: list, schema_folder: str) -> tuple[list, dict]:
+        """Generate SQL for a batch of questions and compare with expected SQL.
+        
+        Args:
+            questions_data: List of dicts with 'question' and 'expectedSql' keys
+            schema_folder: Path to schema folder
+            
+        Returns:
+            tuple: (list of results, statistics dict)
+        """
+        results = []
+        model_checked_count = 0
+        
+        for item in questions_data:
+            try:
+                # Generate SQL using the existing method
+                generated_sql = AIService.generate_sql_from_question(
+                    question=item['question'],
+                    schema_folder=schema_folder
+                )
+                
+                # Clean both SQLs for comparison
+                clean_generated = SQLService._clean_sql_response(generated_sql)
+                clean_expected = SQLService._clean_sql_response(item['expectedSql'])
+                
+                # Initial normalized comparison
+                is_match = AIService._normalize_sql(clean_generated) == AIService._normalize_sql(clean_expected)
+                checked_by_model = False
+                
+                # If not a normalized match, try semantic comparison
+                if not is_match:
+                    checked_by_model = True
+                    model_checked_count += 1
+                    is_match = AIService.compare_sql_queries_semantically(
+                        clean_generated,
+                        clean_expected
+                    )
+                
+                # Add results to the item
+                item['llmGeneratedQuery'] = generated_sql
+                item['match'] = is_match
+                item['checkedByModel'] = checked_by_model
+                
+            except Exception as e:
+                current_app.logger.error(f"Error processing question: {str(e)}")
+                item['llmGeneratedQuery'] = None
+                item['match'] = False
+                item['checkedByModel'] = False
+                item['error'] = str(e)
+            
+            results.append(item)
+            
+        # Calculate statistics
+        stats = {
+            'total_questions': len(results),
+            'matching_queries': sum(1 for r in results if r.get('match', False)),
+            'model_checked_queries': model_checked_count,
+            'exact_matches': sum(1 for r in results if r.get('match', False) and not r.get('checkedByModel', False)),
+            'semantic_matches': sum(1 for r in results if r.get('match', False) and r.get('checkedByModel', False))
+        }
+        stats['accuracy_percentage'] = (stats['matching_queries'] / stats['total_questions'] * 100) if stats['total_questions'] > 0 else 0
+            
+        return results, stats

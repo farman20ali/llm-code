@@ -1,0 +1,185 @@
+POST:
+{{ _.llm }}/query/batch-generate-and-compare
+request:
+[
+	{
+		"question": "Total number of accidents",
+		"expectedSql": "SELECT COUNT(*) AS total_accidents FROM accident_reports"
+	},
+	{
+		"question": "Count of accidents with more than 3 casualties",
+		"expectedSql": "SELECT COUNT(*) AS count_more_than_3 FROM accident_reports WHERE num_affecties > 3"
+	},
+	{
+		"question": "Number of accidents involving pedestrians",
+		"expectedSql": "SELECT COUNT(*) AS pedestrian_accidents FROM accident_reports ar JOIN vehicle_involved vi ON ar.vehicle_involved_id = vi.id WHERE vi.label = '\''Pedestrian'\''"
+	},
+	{
+		"question": "Count accidents by weather condition",
+		"expectedSql": "SELECT wc.condition AS weather, COUNT(*) AS count FROM accident_reports ar JOIN weather_condition wc ON ar.weather_condition = wc.id GROUP BY wc.condition ORDER BY count DESC"
+	},
+	{
+		"question": "What areas have the highest number of accidents?",
+		"expectedSql": "SELECT accident_location, COUNT(*) AS total FROM accident_reports GROUP BY accident_location ORDER BY total DESC LIMIT 5"
+	},
+	{
+		"question": "Number of accidents that occurred during rainy weather",
+		"expectedSql": "SELECT COUNT(*) AS rainy_accidents FROM accident_reports ar JOIN weather_condition wc ON ar.weather_condition = wc.id WHERE wc.condition = '\''Rain'\''"
+	},
+	{
+		"question": "Vehicle type involved in the most accidents",
+		"expectedSql": "SELECT vi.label AS vehicle_type, COUNT(*) AS count FROM accident_reports ar JOIN vehicle_involved vi ON ar.vehicle_involved_id = vi.id GROUP BY vi.label ORDER BY count DESC LIMIT 1"
+	},
+	{
+		"question": "Count of accidents on roads with poor visibility",
+		"expectedSql": "SELECT COUNT(*) AS poor_visibility_accidents FROM accident_reports ar JOIN visibility v ON ar.visibility = v.id WHERE v.level = '\''Poor'\''"
+	},
+	{
+		"question": "Monthly trend of accidents in the past year",
+		"expectedSql": "SELECT DATE_TRUNC('\''month'\'', created_at) AS month, COUNT(*) AS count FROM accident_reports WHERE created_at >= NOW() - INTERVAL '\''1 year'\'' GROUP BY month ORDER BY month"
+	},
+	{
+		"question": "Average number of casualties per accident type",
+		"expectedSql": "SELECT at.label AS accident_type, AVG(ar.num_affecties) AS avg_casualties FROM accident_reports ar JOIN accident_types at ON ar.accident_type_id = at.id GROUP BY at.label ORDER BY avg_casualties DESC"
+	},
+	{
+		"question": "Gender distribution of drivers in reported accidents",
+		"expectedSql": "SELECT gt.label AS gender, COUNT(*) AS count FROM accident_reports ar JOIN gender_types gt ON ar.gender = gt.id GROUP BY gt.label"
+	},
+	{
+		"question": "Count of Hit and Run accidents",
+		"expectedSql": "SELECT COUNT(*) AS hit_and_run_accidents FROM accident_reports ar JOIN accident_types at ON ar.accident_type_id = at.id WHERE at.label = '\''Hit and Run'\''"
+	},
+	{
+		"question": "Top 5 accident locations by frequency",
+		"expectedSql": "SELECT accident_location, COUNT(*) AS total FROM accident_reports GROUP BY accident_location ORDER BY total DESC LIMIT 5"
+	},
+	{
+		"question": "Count of accidents by road surface condition",
+		"expectedSql": "SELECT rsc.condition, COUNT(*) AS count FROM accident_reports ar JOIN road_surface_condition rsc ON ar.road_surface_condition = rsc.id GROUP BY rsc.condition ORDER BY count DESC"
+	},
+	{
+		"question": "Count of accidents where fitness certificate was expired",
+		"expectedSql": "SELECT COUNT(*) AS expired_fitness_accidents FROM accident_reports ar JOIN vehicle_details vd ON ar.report_id = vd.report_id WHERE vd.fitness_certificate_status = '\''Expired'\''"
+	}
+]
+
+{
+	"results": [
+		{
+			"checkedByModel": false,
+			"expectedSql": "SELECT COUNT(*) AS total_accidents FROM accident_reports",
+			"llmGeneratedQuery": "SELECT COUNT(*) AS total_accidents\nFROM accident_reports;",
+			"match": true,
+			"question": "Total number of accidents"
+		},
+		{
+			"checkedByModel": true,
+			"expectedSql": "SELECT COUNT(*) AS count_more_than_3 FROM accident_reports WHERE num_affecties > 3",
+			"llmGeneratedQuery": "SELECT COUNT(*) AS accident_count\nFROM accident_reports\nWHERE num_affecties > 3;",
+			"match": true,
+			"question": "Count of accidents with more than 3 casualties"
+		},
+		{
+			"checkedByModel": true,
+			"expectedSql": "SELECT COUNT(*) AS pedestrian_accidents FROM accident_reports ar JOIN vehicle_involved vi ON ar.vehicle_involved_id = vi.id WHERE vi.label = 'Pedestrian'",
+			"llmGeneratedQuery": "SELECT COUNT(ar.report_id) AS pedestrian_accidents_count\nFROM accident_reports ar\nJOIN vehicle_involved vi ON ar.vehicle_involved_id = vi.id\nWHERE vi.label = 'Pedestrian'",
+			"match": true,
+			"question": "Number of accidents involving pedestrians"
+		},
+		{
+			"checkedByModel": true,
+			"expectedSql": "SELECT wc.condition AS weather, COUNT(*) AS count FROM accident_reports ar JOIN weather_condition wc ON ar.weather_condition = wc.id GROUP BY wc.condition ORDER BY count DESC",
+			"llmGeneratedQuery": "SELECT wc.condition, COUNT(ar.report_id) AS accident_count\nFROM accident_reports ar\nJOIN weather_condition wc ON ar.weather_condition = wc.id\nGROUP BY wc.condition;",
+			"match": true,
+			"question": "Count accidents by weather condition"
+		},
+		{
+			"checkedByModel": true,
+			"expectedSql": "SELECT accident_location, COUNT(*) AS total FROM accident_reports GROUP BY accident_location ORDER BY total DESC LIMIT 5",
+			"llmGeneratedQuery": "SELECT accident_location, COUNT(*) AS accident_count\nFROM accident_reports\nGROUP BY accident_location\nORDER BY accident_count DESC;",
+			"match": true,
+			"question": "What areas have the highest number of accidents?"
+		},
+		{
+			"checkedByModel": true,
+			"expectedSql": "SELECT COUNT(*) AS rainy_accidents FROM accident_reports ar JOIN weather_condition wc ON ar.weather_condition = wc.id WHERE wc.condition = 'Rain'",
+			"llmGeneratedQuery": "SELECT COUNT(ar.report_id) AS rainy_weather_accidents_count\nFROM accident_reports ar\nJOIN weather_condition wc ON ar.weather_condition = wc.id\nWHERE wc.condition = 'Rainy'",
+			"match": true,
+			"question": "Number of accidents that occurred during rainy weather"
+		},
+		{
+			"checkedByModel": true,
+			"expectedSql": "SELECT vi.label AS vehicle_type, COUNT(*) AS count FROM accident_reports ar JOIN vehicle_involved vi ON ar.vehicle_involved_id = vi.id GROUP BY vi.label ORDER BY count DESC LIMIT 1",
+			"llmGeneratedQuery": "SELECT vi.label AS vehicle_type, COUNT(ar.id) AS accident_count\nFROM accident_reports ar\nJOIN vehicle_involved vi ON ar.vehicle_involved_id = vi.id\nGROUP BY vi.label\nORDER BY accident_count DESC\nLIMIT 1;",
+			"match": true,
+			"question": "Vehicle type involved in the most accidents"
+		},
+		{
+			"checkedByModel": true,
+			"expectedSql": "SELECT COUNT(*) AS poor_visibility_accidents FROM accident_reports ar JOIN visibility v ON ar.visibility = v.id WHERE v.level = 'Poor'",
+			"llmGeneratedQuery": "SELECT COUNT(ar.report_id) AS accident_count\nFROM accident_reports ar\nJOIN visibility v ON ar.visibility = v.id\nWHERE v.level = 'Poor'",
+			"match": true,
+			"question": "Count of accidents on roads with poor visibility"
+		},
+		{
+			"checkedByModel": false,
+			"error": "Failed to generate valid SQL after validation",
+			"expectedSql": "SELECT DATE_TRUNC('month', created_at) AS month, COUNT(*) AS count FROM accident_reports WHERE created_at >= NOW() - INTERVAL '1 year' GROUP BY month ORDER BY month",
+			"llmGeneratedQuery": null,
+			"match": false,
+			"question": "Monthly trend of accidents in the past year"
+		},
+		{
+			"checkedByModel": true,
+			"expectedSql": "SELECT at.label AS accident_type, AVG(ar.num_affecties) AS avg_casualties FROM accident_reports ar JOIN accident_types at ON ar.accident_type_id = at.id GROUP BY at.label ORDER BY avg_casualties DESC",
+			"llmGeneratedQuery": "SELECT at.label AS accident_type, AVG(ar.num_affecties) AS average_casualties\nFROM accident_reports ar\nJOIN accident_types at ON ar.accident_type_id = at.id\nGROUP BY at.label;",
+			"match": true,
+			"question": "Average number of casualties per accident type"
+		},
+		{
+			"checkedByModel": true,
+			"expectedSql": "SELECT gt.label AS gender, COUNT(*) AS count FROM accident_reports ar JOIN gender_types gt ON ar.gender = gt.id GROUP BY gt.label",
+			"llmGeneratedQuery": "SELECT gt.label, COUNT(ar.gender) AS driver_count\nFROM accident_reports ar\nJOIN gender_types gt ON ar.gender = gt.id\nWHERE ar.gender IS NOT NULL\nGROUP BY gt.label;",
+			"match": true,
+			"question": "Gender distribution of drivers in reported accidents"
+		},
+		{
+			"checkedByModel": true,
+			"expectedSql": "SELECT COUNT(*) AS hit_and_run_accidents FROM accident_reports ar JOIN accident_types at ON ar.accident_type_id = at.id WHERE at.label = 'Hit and Run'",
+			"llmGeneratedQuery": "SELECT COUNT(ar.report_id) AS hit_and_run_count\nFROM accident_reports ar\nJOIN lov_table lt ON ar.status = lt.id\nWHERE lt.descriptive_column = 'Hit and Run'",
+			"match": false,
+			"question": "Count of Hit and Run accidents"
+		},
+		{
+			"checkedByModel": true,
+			"expectedSql": "SELECT accident_location, COUNT(*) AS total FROM accident_reports GROUP BY accident_location ORDER BY total DESC LIMIT 5",
+			"llmGeneratedQuery": "SELECT accident_location, COUNT(*) AS frequency\nFROM accident_reports\nGROUP BY accident_location\nORDER BY frequency DESC\nLIMIT 5;",
+			"match": true,
+			"question": "Top 5 accident locations by frequency"
+		},
+		{
+			"checkedByModel": true,
+			"expectedSql": "SELECT rsc.condition, COUNT(*) AS count FROM accident_reports ar JOIN road_surface_condition rsc ON ar.road_surface_condition = rsc.id GROUP BY rsc.condition ORDER BY count DESC",
+			"llmGeneratedQuery": "SELECT rsc.description AS road_surface_condition, COUNT(ar.id) AS accident_count\nFROM accident_reports ar\nJOIN road_surface_condition rsc ON ar.road_surface_condition = rsc.id\nGROUP BY rsc.description;",
+			"match": true,
+			"question": "Count of accidents by road surface condition"
+		},
+		{
+			"checkedByModel": true,
+			"expectedSql": "SELECT COUNT(*) AS expired_fitness_accidents FROM accident_reports ar JOIN vehicle_details vd ON ar.report_id = vd.report_id WHERE vd.fitness_certificate_status = 'Expired'",
+			"llmGeneratedQuery": "SELECT COUNT(ar.report_id) AS expired_fitness_certificate_count\nFROM accident_reports ar\nJOIN vehicle_involved vi ON ar.vehicle_involved_id = vi.id\nWHERE vi.label = 'Fitness Certificate Expired'",
+			"match": true,
+			"question": "Count of accidents where fitness certificate was expired"
+		}
+	],
+	"statistics": {
+		"accuracy_percentage": 86.66666666666667,
+		"exact_matches": 1,
+		"matching_queries": 13,
+		"model_checked_queries": 13,
+		"semantic_matches": 12,
+		"total_questions": 15
+	},
+	"status": "success"
+}

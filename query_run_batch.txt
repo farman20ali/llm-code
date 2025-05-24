@@ -1,0 +1,302 @@
+POST:
+
+{{ _.llm }}/api/sql/batch-query
+{
+    "queryList":[],
+	"queryMap": {
+		"Total number of accidents": "SELECT COUNT(*) AS total_accidents FROM accident_reports",
+		"Count of accidents with more than 3 casualties": "SELECT COUNT(*) AS count_more_than_3 FROM accident_reports WHERE num_affecties > 3",
+		"Number of accidents involving pedestrians": "SELECT COUNT(*) AS pedestrian_accidents FROM accident_reports ar JOIN vehicle_involved vi ON ar.vehicle_involved_id = vi.id WHERE vi.label = 'Pedestrian'",
+		"Count accidents by weather condition": "SELECT wc.condition AS weather, COUNT(*) AS count FROM accident_reports ar JOIN weather_condition wc ON ar.weather_condition = wc.id GROUP BY wc.condition ORDER BY count DESC",
+		"What areas have the highest number of accidents?": "SELECT accident_location, COUNT(*) AS total FROM accident_reports GROUP BY accident_location ORDER BY total DESC LIMIT 5",
+		"Number of accidents that occurred during rainy weather": "SELECT COUNT(*) AS rainy_accidents FROM accident_reports ar JOIN weather_condition wc ON ar.weather_condition = wc.id WHERE wc.condition = 'Rain'",
+		"Vehicle type involved in the most accidents": "SELECT vi.label AS vehicle_type, COUNT(*) AS count FROM accident_reports ar JOIN vehicle_involved vi ON ar.vehicle_involved_id = vi.id GROUP BY vi.label ORDER BY count DESC LIMIT 1",
+		"Count of accidents on roads with poor visibility": "SELECT COUNT(*) AS poor_visibility_accidents FROM accident_reports ar JOIN visibility v ON ar.visibility = v.id WHERE v.level = 'Poor'",
+		"Monthly trend of accidents in the past year": "SELECT DATE_TRUNC('month', created_at) AS month, COUNT(*) AS count FROM accident_reports WHERE created_at >= NOW() - INTERVAL '1 year' GROUP BY month ORDER BY month",
+		"Average number of casualties per accident type": "SELECT at.label AS accident_type, AVG(ar.num_affecties) AS avg_casualties FROM accident_reports ar JOIN accident_types at ON ar.accident_type_id = at.id GROUP BY at.label ORDER BY avg_casualties DESC",
+		"Gender distribution of drivers in reported accidents": "SELECT gt.label AS gender, COUNT(*) AS count FROM accident_reports ar JOIN gender_types gt ON ar.gender = gt.id GROUP BY gt.label",
+		"Count of Hit and Run accidents": "SELECT COUNT(*) AS hit_and_run_accidents FROM accident_reports ar JOIN accident_types at ON ar.accident_type_id = at.id WHERE at.label = 'Hit and Run'",
+		"Top 5 accident locations by frequency": "SELECT accident_location, COUNT(*) AS total FROM accident_reports GROUP BY accident_location ORDER BY total DESC LIMIT 5",
+		"Count of accidents by road surface condition": "SELECT rsc.condition, COUNT(*) AS count FROM accident_reports ar JOIN road_surface_condition rsc ON ar.road_surface_condition = rsc.id GROUP BY rsc.condition ORDER BY count DESC",
+		"Count of accidents where fitness certificate was expired": "SELECT COUNT(*) AS expired_fitness_accidents FROM accident_reports ar JOIN vehicle_details vd ON ar.report_id = vd.report_id WHERE vd.fitness_certificate_status = 'Expired'"
+	}
+}
+
+
+{
+	"successfulQueries": [
+		{
+			"columns": [
+				"total_accidents"
+			],
+			"key": "Total number of accidents",
+			"query": "SELECT COUNT(*) AS total_accidents FROM accident_reports",
+			"rows": [
+				[
+					120227
+				]
+			]
+		},
+		{
+			"columns": [
+				"count_more_than_3"
+			],
+			"key": "Count of accidents with more than 3 casualties",
+			"query": "SELECT COUNT(*) AS count_more_than_3 FROM accident_reports WHERE num_affecties > 3",
+			"rows": [
+				[
+					47987
+				]
+			]
+		},
+		{
+			"columns": [
+				"pedestrian_accidents"
+			],
+			"key": "Number of accidents involving pedestrians",
+			"query": "SELECT COUNT(*) AS pedestrian_accidents FROM accident_reports ar JOIN vehicle_involved vi ON ar.vehicle_involved_id = vi.id WHERE vi.label = 'Pedestrian'",
+			"rows": [
+				[
+					11957
+				]
+			]
+		},
+		{
+			"columns": [
+				"weather",
+				"count"
+			],
+			"key": "Count accidents by weather condition",
+			"query": "SELECT wc.condition AS weather, COUNT(*) AS count FROM accident_reports ar JOIN weather_condition wc ON ar.weather_condition = wc.id GROUP BY wc.condition ORDER BY count DESC",
+			"rows": [
+				[
+					"Rain",
+					40366
+				],
+				[
+					"Fog",
+					39968
+				],
+				[
+					"Clear",
+					39886
+				]
+			]
+		},
+		{
+			"columns": [
+				"accident_location",
+				"total"
+			],
+			"key": "What areas have the highest number of accidents?",
+			"query": "SELECT accident_location, COUNT(*) AS total FROM accident_reports GROUP BY accident_location ORDER BY total DESC LIMIT 5",
+			"rows": [
+				[
+					"Clifton",
+					10156
+				],
+				[
+					"Liaquatabad",
+					10131
+				],
+				[
+					"Malir",
+					10112
+				],
+				[
+					"Orangi",
+					10078
+				],
+				[
+					"Gulshan-e-Iqbal",
+					10057
+				]
+			]
+		},
+		{
+			"columns": [
+				"rainy_accidents"
+			],
+			"key": "Number of accidents that occurred during rainy weather",
+			"query": "SELECT COUNT(*) AS rainy_accidents FROM accident_reports ar JOIN weather_condition wc ON ar.weather_condition = wc.id WHERE wc.condition = 'Rain'",
+			"rows": [
+				[
+					40366
+				]
+			]
+		},
+		{
+			"columns": [
+				"vehicle_type",
+				"count"
+			],
+			"key": "Vehicle type involved in the most accidents",
+			"query": "SELECT vi.label AS vehicle_type, COUNT(*) AS count FROM accident_reports ar JOIN vehicle_involved vi ON ar.vehicle_involved_id = vi.id GROUP BY vi.label ORDER BY count DESC LIMIT 1",
+			"rows": [
+				[
+					"Motorbike",
+					12180
+				]
+			]
+		},
+		{
+			"columns": [
+				"poor_visibility_accidents"
+			],
+			"key": "Count of accidents on roads with poor visibility",
+			"query": "SELECT COUNT(*) AS poor_visibility_accidents FROM accident_reports ar JOIN visibility v ON ar.visibility = v.id WHERE v.level = 'Poor'",
+			"rows": [
+				[
+					0
+				]
+			]
+		},
+		{
+			"columns": [
+				"month",
+				"count"
+			],
+			"key": "Monthly trend of accidents in the past year",
+			"query": "SELECT DATE_TRUNC('month', created_at) AS month, COUNT(*) AS count FROM accident_reports WHERE created_at >= NOW() - INTERVAL '1 year' GROUP BY month ORDER BY month",
+			"rows": [
+				[
+					"Wed, 01 Jan 2025 00:00:00 GMT",
+					44640
+				],
+				[
+					"Sat, 01 Feb 2025 00:00:00 GMT",
+					40320
+				],
+				[
+					"Sat, 01 Mar 2025 00:00:00 GMT",
+					35040
+				],
+				[
+					"Tue, 01 Apr 2025 00:00:00 GMT",
+					200
+				],
+				[
+					"Thu, 01 May 2025 00:00:00 GMT",
+					27
+				]
+			]
+		},
+		{
+			"columns": [
+				"accident_type",
+				"avg_casualties"
+			],
+			"key": "Average number of casualties per accident type",
+			"query": "SELECT at.label AS accident_type, AVG(ar.num_affecties) AS avg_casualties FROM accident_reports ar JOIN accident_types at ON ar.accident_type_id = at.id GROUP BY at.label ORDER BY avg_casualties DESC",
+			"rows": [
+				[
+					"Minor Collision",
+					"3.0360285571974099"
+				],
+				[
+					"Hit and Run",
+					"3.0006538667300719"
+				],
+				[
+					"Vehicle Rollover",
+					"3.0003334444814938"
+				],
+				[
+					"Major Collision",
+					"2.9916286779941981"
+				]
+			]
+		},
+		{
+			"columns": [
+				"gender",
+				"count"
+			],
+			"key": "Gender distribution of drivers in reported accidents",
+			"query": "SELECT gt.label AS gender, COUNT(*) AS count FROM accident_reports ar JOIN gender_types gt ON ar.gender = gt.id GROUP BY gt.label",
+			"rows": [
+				[
+					"female",
+					59904
+				],
+				[
+					"male",
+					60318
+				]
+			]
+		},
+		{
+			"columns": [
+				"hit_and_run_accidents"
+			],
+			"key": "Count of Hit and Run accidents",
+			"query": "SELECT COUNT(*) AS hit_and_run_accidents FROM accident_reports ar JOIN accident_types at ON ar.accident_type_id = at.id WHERE at.label = 'Hit and Run'",
+			"rows": [
+				[
+					84115
+				]
+			]
+		},
+		{
+			"columns": [
+				"accident_location",
+				"total"
+			],
+			"key": "Top 5 accident locations by frequency",
+			"query": "SELECT accident_location, COUNT(*) AS total FROM accident_reports GROUP BY accident_location ORDER BY total DESC LIMIT 5",
+			"rows": [
+				[
+					"Clifton",
+					10156
+				],
+				[
+					"Liaquatabad",
+					10131
+				],
+				[
+					"Malir",
+					10112
+				],
+				[
+					"Orangi",
+					10078
+				],
+				[
+					"Gulshan-e-Iqbal",
+					10057
+				]
+			]
+		},
+		{
+			"columns": [
+				"condition",
+				"count"
+			],
+			"key": "Count of accidents by road surface condition",
+			"query": "SELECT rsc.condition, COUNT(*) AS count FROM accident_reports ar JOIN road_surface_condition rsc ON ar.road_surface_condition = rsc.id GROUP BY rsc.condition ORDER BY count DESC",
+			"rows": [
+				[
+					"Wet",
+					60205
+				],
+				[
+					"Dry",
+					60014
+				]
+			]
+		},
+		{
+			"columns": [
+				"expired_fitness_accidents"
+			],
+			"key": "Count of accidents where fitness certificate was expired",
+			"query": "SELECT COUNT(*) AS expired_fitness_accidents FROM accident_reports ar JOIN vehicle_details vd ON ar.report_id = vd.report_id WHERE vd.fitness_certificate_status = 'Expired'",
+			"rows": [
+				[
+					0
+				]
+			]
+		}
+	],
+	"unsuccessfulQueries": []
+}
