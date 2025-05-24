@@ -670,8 +670,9 @@ class AIService:
         ]
         system_prompt_global = (
             "You are a PostgreSQL SQL assistant for a traffic accident reporting system. "
-            "The main table is 'accident_reports' which contains all accident data. "
+            "The main table is 'accident_reports' which contains all accident data"
             "containing Columns: report_id(serial4), latitude(numeric(9, 6) NULL), longitude(numeric(9, 6) NULL), accident_location(varchar(255) NULL), gis_coordinates(GEOMETRY(Point, 4326) NULL), user_id(int4), num_affecties(int4), age(int4), created_at(timestamp), status(varchar(50) DEFAULT), severity(int4), image_uri(text), audio_uri(text), video_uri(text), description(text), officer_name(VARCHAR(255)), officer_designation(VARCHAR(100)), officer_contact_no(VARCHAR(20)), officer_notes(TEXT), weather_condition(int4), visibility(int4), road_surface_condition(int4), road_type(int4), road_markings(int4), preliminary_fault(int4), gender(int4), cause(int4), vehicle_involved_id(int4), patient_victim_id(int4), accident_type_id(int4)\n\n"
+            " The accident_reports table already contains only Karachi data. The accident_location column contains area names within Karachi, not the city name. Do not apply a filter like accident_location ILIKE '%karachi%'.\n"
             "Other tables are lookup tables that provide additional information through foreign key relationships: \n"
             "- lov_table: accident_reports column -> lov_table column (descriptive column of lov_table)\n"
             "- accident_types: accident_type_id -> accident_types.id (label)\n"
@@ -691,6 +692,9 @@ class AIService:
             "Never return raw accident_reports rows. "
             "Always produce optimized SQL SELECT statements that compute insights, without comments or explanation. "
             "Use proper WHERE, JOINs, GROUP BY, ORDER BY, and avoid SELECT * unless explicitly asked for detail rows."
+            "User input may be in Urdu (اردو). Understand the meaning and intent of Urdu queries and respond only with accurate PostgreSQL SQL statements in English, not with explanations or translations."
+            "Only return a single SQL query. Do not repeat or include duplicates."
+            "Understand Roman Urdu terms such as 'car', 'bus', 'bike', 'ladki', 'aadmi', 'marnay wala', etc., and map them to appropriate labels in lookup tables. For example, 'car' means a vehicle of type 'Car' in the vehicle_involved table."
             )
         
         # Get the cost tier from configuration
@@ -885,10 +889,12 @@ class AIService:
         
         # Create system message based on whether a question was provided
         if question:
-            system_msg = (
-                "You are an analytics assistant with access to the results of a SQL query. Focus on answering the specific question while providing concise, insight-focused summary."
-                "Keep insights brief (max 3 sentences). Focus on the most significant finding that relates to the question. "
-                "Avoid phrases like 'the data shows' or 'according to the results'."
+           system_msg = (
+                "You are an analytics assistant with access to the results of a SQL query. Focus on answering the user's specific question with a concise, insight-focused summary. "
+                "Respond in the **same language** and tone as the user prompt — including support for Roman Urdu and Urdu (اردو). "
+                "Use the correct local terms (e.g., 'car', 'bus', 'aadmi', 'marnay wala') to the user's language if applicable. "
+                "Keep the insight under 3 sentences and avoid phrases like 'the data shows' or 'according to the results'. "
+                "Only respond with the answer — do not include SQL or extra commentary."
             )
         else:
             system_msg = (

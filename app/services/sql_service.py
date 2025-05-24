@@ -81,6 +81,7 @@ class SQLService:
     @staticmethod
     def validate_select(sql: str) -> bool:
         """Validate that SQL is a safe single SELECT statement."""
+
         # 1) Remove markdown fences completely
         sql = re.sub(r"```.*?```", "", sql, flags=re.DOTALL)
 
@@ -90,7 +91,10 @@ class SQLService:
         # 3) Remove exactly ONE trailing semicolon (and any following spaces/newlines)
         sql = re.sub(r";+\s*$", "", sql)
 
-        # 4) Reject if any semicolon remains (multiple statements)
+        # 🔄 NEW STEP: Normalize internal whitespace (optional but helpful)
+        sql = re.sub(r"\s+", " ", sql)
+
+        # ✅ 4) Now check for *internal* semicolons (not at end) → Means multiple statements
         if ";" in sql:
             current_app.logger.warning(f"SQL contains multiple statements: {sql}")
             return False

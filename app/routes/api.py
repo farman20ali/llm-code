@@ -46,7 +46,7 @@ def ask_database():
             cols, rows = SQLService.run_sql(sql)
             
             # Generate insight from the results
-            insight = AIService.generate_insight_from_sql_results(sql, cols, rows)
+            insight = AIService.generate_insight_from_sql_results(sql, cols, rows, question)
             
             # Return the complete result
             result = {
