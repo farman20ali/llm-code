@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, current_app
 from app.services.ai_service import AIService
 from app.services.sql_service import SQLService
+from app.services.langchain_service import LangChainService
 
 query_bp = Blueprint('query', __name__)
 

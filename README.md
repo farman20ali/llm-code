@@ -10,7 +10,25 @@ A Flask application that provides AI-powered insights using natural language pro
 - OpenAI integration for advanced natural language processing
 - PostgreSQL database integration
 
-## Installation
+## 🚀 Quick Deployment to Server
+
+**For production deployment to a Linux server, use our one-command deployment:**
+
+📖 **See [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** for complete instructions.
+
+**TL;DR:**
+```bash
+# On your Linux server:
+curl -sSL https://raw.githubusercontent.com/farman20ali/llm-code/main/deploy.sh -o deploy.sh
+chmod +x deploy.sh
+./deploy.sh
+```
+
+The script will interactively ask for your database and API credentials, then handle everything automatically.
+
+---
+
+## 💻 Local Development Installation
 
 1. Clone the repository:
 ```
