@@ -102,9 +102,37 @@ if [[ "$OSTYPE" != "linux-gnu"* ]]; then
 fi
 
 # Check required commands
-check_command git || exit 1
-check_command python3 || exit 1
-check_command pip3 || exit 1
+check_command git || { print_error "Git is required. Install it first: sudo apt install git"; exit 1; }
+check_command python3 || { print_error "Python3 is required. Install it first: sudo apt install python3"; exit 1; }
+
+# Check for pip3, install if missing
+if ! check_command pip3; then
+    print_warning "pip3 not found, attempting to install..."
+    
+    # Detect package manager and install pip3
+    if command -v apt-get &> /dev/null; then
+        # Debian/Ubuntu
+        sudo apt-get update
+        sudo apt-get install -y python3-pip python3-venv
+    elif command -v yum &> /dev/null; then
+        # CentOS/RHEL
+        sudo yum install -y python3-pip
+    elif command -v dnf &> /dev/null; then
+        # Fedora
+        sudo dnf install -y python3-pip
+    else
+        print_error "Could not auto-install pip3. Please install it manually."
+        exit 1
+    fi
+    
+    # Verify installation
+    if check_command pip3; then
+        print_success "pip3 installed successfully"
+    else
+        print_error "Failed to install pip3. Please install manually."
+        exit 1
+    fi
+fi
 
 print_success "All prerequisites satisfied"
 
@@ -240,7 +268,23 @@ if [ -d "$VENV_DIR" ]; then
     rm -rf "$VENV_DIR"
 fi
 
+# Try to create venv, install python3-venv if it fails
+if ! python3 -m venv "$VENV_DIR" 2>/dev/null; then
+    print_warning "python3-venv not installed, installing now..."
+    
+    # Install python3-venv based on package manager
+    if command -v apt-get &> /dev/null; then
+        sudo apt-get install -y python3-venv
+    elif command -v yum &> /dev/null; then
+        sudo yum install -y python3-virtualenv
+    elif command -v dnf &> /dev/null; then
+        sudo dnf install -y python3-virtualenv
+    fi
+    
+    # Try again
 python3 -m venv "$VENV_DIR" || { print_error "Failed to create virtual environment"; exit 1; }
+fi
+
 source "$VENV_DIR/bin/activate"
 
 print_success "Virtual environment created"
